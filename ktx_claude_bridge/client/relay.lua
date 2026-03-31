@@ -76,6 +76,20 @@ end
 -- Console capture buffer
 local consoleBuffer = {}
 local FLUSH_INTERVAL <const> = 5000 -- ms
+local MAX_BUFFER <const> = 500
+
+--- Get Unix timestamp synced via server offset.
+local timeOffset = 0
+
+RegisterNetEvent('ktx_cb:timeSync')
+AddEventHandler('ktx_cb:timeSync', function(serverTime)
+    timeOffset = serverTime - math.floor(GetGameTimer() / 1000)
+end)
+
+---@return integer Unix timestamp
+local function getUnixTime()
+    return math.floor(GetGameTimer() / 1000) + timeOffset
+end
 
 -- Wrap client-side print
 local _print <const> = print
@@ -87,10 +101,18 @@ function print(...)
         parts[i] = tostring(select(i, ...))
     end
     consoleBuffer[#consoleBuffer + 1] = {
-        timestamp = GetGameTimer(),
+        timestamp = getUnixTime(),
         level = 'info',
         message = table.concat(parts, '\t'),
     }
+    -- Cap buffer to prevent unbounded growth
+    if #consoleBuffer > MAX_BUFFER then
+        local trimmed = {}
+        for i = #consoleBuffer - MAX_BUFFER + 1, #consoleBuffer do
+            trimmed[#trimmed + 1] = consoleBuffer[i]
+        end
+        consoleBuffer = trimmed
+    end
 end
 
 -- Periodically flush console buffer to server

@@ -77,6 +77,9 @@ AddEventHandler('ktx_cb:execResult', function(requestId, result, err)
     local pending = PendingCallbacks[requestId]
     if not pending then return end
 
+    -- Validate source matches the player we sent the request to
+    if pending.source ~= source then return end
+
     PendingCallbacks[requestId] = nil
 
     if err then
@@ -92,5 +95,21 @@ AddEventHandler('ktx_cb:clientConsole', function(entries)
     local src = source
     if type(entries) == 'table' then
         AddClientConsole(src, entries)
+    end
+end)
+
+-- Sync time with client on connect
+AddEventHandler('playerJoining', function()
+    local src = source
+    SetTimeout(2000, function()
+        TriggerClientEvent('ktx_cb:timeSync', src, os.time())
+    end)
+end)
+
+-- Also sync existing players on resource start
+CreateThread(function()
+    Wait(1000)
+    for _, id in ipairs(GetPlayers()) do
+        TriggerClientEvent('ktx_cb:timeSync', tonumber(id), os.time())
     end
 end)

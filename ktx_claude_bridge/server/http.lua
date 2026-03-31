@@ -39,6 +39,10 @@ local GET_ROUTES <const> = {
     ['/status']          = HandleStatus,
     ['/players']         = HandlePlayers,
     ['/resources']       = HandleResources,
+    ['/server/info']     = HandleServerInfo,
+    ['/player/data']     = HandlePlayerData,
+    ['/resource/info']   = HandleResourceInfo,
+    ['/entities']        = HandleEntities,
     ['/console/server']  = HandleServerConsole,
     ['/console/client']  = HandleClientConsole,
 }
@@ -50,6 +54,9 @@ local POST_ROUTES <const> = {
     ['/event/server']     = HandleTriggerServerEvent,
     ['/event/client']     = HandleTriggerClientEvent,
     ['/command']          = HandleCommand,
+    ['/command/client']   = HandleClientCommand,
+    ['/db/query']         = HandleDbQuery,
+    ['/nui/state']        = HandleNuiState,
     ['/resource/restart'] = HandleRestartResource,
     ['/screenshot']       = HandleScreenshot,
 }

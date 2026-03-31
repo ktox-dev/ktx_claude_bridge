@@ -23,7 +23,7 @@ Claude Code ──stdio──> MCP Server (Node.js, mcp/)
 
 ## Dependencies
 
-- **FiveM resource:** None (standalone, no ox_lib needed)
+- **FiveM resource:** `ktx_bridge_helper` (sibling resource for safe self-restart)
 - **MCP server:** `@modelcontextprotocol/sdk`, `zod`
 - **Optional:** `screencapture` resource for screenshots (github.com/itschip/screencapture)
 
@@ -59,21 +59,41 @@ MCP config for Claude Code settings:
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | /status | Server health check |
+| GET | /server/info | Extended server info (convars, frameworks, OneSync) |
 | GET | /players | Detailed player list |
+| GET | /player/data | Qbox player data (job, gang, money, charinfo) |
 | GET | /resources | All resources with states |
-| GET | /console/server | Server console output |
+| GET | /resource/info | Resource metadata (version, author, scripts, exports, deps) |
+| GET | /entities | All entities (vehicles, peds, objects) — requires OneSync |
+| GET | /console/server | Server console (all resources via RegisterConsoleListener) |
 | GET | /console/client | Client console output |
 | POST | /exec/server | Execute Lua server-side |
 | POST | /exec/client | Execute Lua client-side |
 | POST | /event/server | Trigger server event |
 | POST | /event/client | Trigger client event |
-| POST | /command | Console command |
-| POST | /resource/restart | Restart resource |
+| POST | /command | Server console command |
+| POST | /command/client | Client-side command |
+| POST | /db/query | Read-only SQL query (SELECT/SHOW/DESCRIBE/EXPLAIN) |
+| POST | /nui/state | Get NUI focus/cursor state from player's client |
+| POST | /resource/restart | Restart resource (cannot self-restart) |
 | POST | /screenshot | Take screenshot |
 
 ## Conventions
 
 - Lua 5.4, `<const>` qualifier where appropriate
 - No ox_lib — keep standalone
-- Console capture wraps `print` — all output captured in ring buffer
+- Server console uses `RegisterConsoleListener` — captures ALL output from every resource and engine, persists in `_G.__ktx_server_console` (1000 line ring buffer, survives bridge restarts)
+- Self-restart delegated to `ktx_bridge_helper` (avoids SIGSEGV from destroying own Lua VM)
+- Client console wraps `print` — captures client-side output in ring buffer
 - Dev-only tool — prints warning on startup
+
+## Setup (server.cfg)
+
+```cfg
+# Required for command execution (ensure/stop/start/restart/refresh)
+add_ace resource.ktx_claude_bridge command allow
+
+# Start the helper before the bridge
+ensure ktx_bridge_helper
+ensure ktx_claude_bridge
+```

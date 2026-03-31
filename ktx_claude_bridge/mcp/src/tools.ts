@@ -1,6 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { readFile, stat } from 'node:fs/promises';
 import { request } from './http.js';
+import { config } from './config.js';
 
 function text(content: string) {
   return { content: [{ type: 'text' as const, text: content }] };
@@ -41,6 +43,78 @@ export function registerTools(server: McpServer) {
       inputSchema: z.object({}),
     },
     async () => jsonText(await request('GET', '/resources')),
+  );
+
+  server.registerTool(
+    'get_server_info',
+    {
+      description:
+        'Get extended server info: hostname, OneSync status, max clients, locale, framework detection (qbx_core, ox_lib, oxmysql, ox_inventory), resource counts, and connected player IDs.',
+      inputSchema: z.object({}),
+    },
+    async () => jsonText(await request('GET', '/server/info')),
+  );
+
+  server.registerTool(
+    'db_query',
+    {
+      description:
+        'Execute a read-only SQL query via oxmysql. Only SELECT, SHOW, DESCRIBE, and EXPLAIN are allowed. Use parameterized queries with ? placeholders. Examples: "SELECT * FROM players LIMIT 5", "DESCRIBE player_vehicles".',
+      inputSchema: z.object({
+        query: z.string().describe('SQL query (SELECT/SHOW/DESCRIBE/EXPLAIN only)'),
+        params: z.array(z.unknown()).optional().describe('Query parameters for ? placeholders'),
+      }),
+    },
+    async ({ query, params }) =>
+      jsonText(await request('POST', '/db/query', { query, params })),
+  );
+
+  server.registerTool(
+    'get_player_data',
+    {
+      description:
+        'Get Qbox player data (job, gang, money, charinfo, metadata). Works for online and offline players. Requires qbx_core.',
+      inputSchema: z.object({
+        playerId: z.number().optional().describe('Server ID of online player'),
+        citizenid: z.string().optional().describe('CitizenID (works for offline players too)'),
+      }),
+    },
+    async ({ playerId, citizenid }) => {
+      const params = new URLSearchParams();
+      if (playerId !== undefined) params.set('playerId', String(playerId));
+      if (citizenid !== undefined) params.set('citizenid', citizenid);
+      return jsonText(await request('GET', `/player/data?${params}`));
+    },
+  );
+
+  server.registerTool(
+    'get_resource_info',
+    {
+      description:
+        'Get detailed info about a specific resource: version, author, description, dependencies, scripts, exports, and state.',
+      inputSchema: z.object({
+        name: z.string().describe('Resource name'),
+      }),
+    },
+    async ({ name }) => jsonText(await request('GET', `/resource/info?name=${encodeURIComponent(name)}`)),
+  );
+
+  server.registerTool(
+    'get_entities',
+    {
+      description:
+        'List all server-side entities (vehicles, peds, objects) with positions, models, health. Filter by type. Requires OneSync.',
+      inputSchema: z.object({
+        type: z
+          .enum(['vehicle', 'ped', 'object'])
+          .optional()
+          .describe('Filter by entity type (default: all)'),
+      }),
+    },
+    async ({ type }) => {
+      const qs = type ? `?type=${type}` : '';
+      return jsonText(await request('GET', `/entities${qs}`));
+    },
   );
 
   server.registerTool(
@@ -156,6 +230,20 @@ export function registerTools(server: McpServer) {
   );
 
   server.registerTool(
+    'run_client_command',
+    {
+      description:
+        'Run a registered FiveM command on a player\'s client. Executes ExecuteCommand() client-side. Examples: "e menu", "emote wave". If playerId is omitted, targets the first connected player.',
+      inputSchema: z.object({
+        command: z.string().describe('Client-side command to execute'),
+        playerId: z.number().optional().describe('Player server ID (default: first connected player)'),
+      }),
+    },
+    async ({ command, playerId }) =>
+      jsonText(await request('POST', '/command/client', { command, playerId })),
+  );
+
+  server.registerTool(
     'restart_resource',
     {
       description:
@@ -203,6 +291,21 @@ export function registerTools(server: McpServer) {
     },
   );
 
+  // ── NUI tools ────────────────────────────────────────────
+
+  server.registerTool(
+    'get_nui_state',
+    {
+      description:
+        'Get the NUI (UI overlay) state on a player\'s client: whether NUI is focused, if cursor is active, etc.',
+      inputSchema: z.object({
+        playerId: z.number().optional().describe('Player server ID (default: first connected player)'),
+      }),
+    },
+    async ({ playerId }) =>
+      jsonText(await request('POST', '/nui/state', { playerId })),
+  );
+
   // ── Watch console (polling) ──────────────────────────────
 
   server.registerTool(
@@ -245,6 +348,60 @@ export function registerTools(server: McpServer) {
         lines: allLines,
         total: allLines.length,
       });
+    },
+  );
+
+  // ── Server log file (txAdmin) ───────────────────────────
+
+  server.registerTool(
+    'read_server_log',
+    {
+      description:
+        'Read the full FiveM server log file (fxserver.log from txAdmin). Contains ALL console output since server start including early boot messages. Use "tail" param to get last N lines, or "search" to grep for a pattern. Much more complete than get_server_console.',
+      inputSchema: z.object({
+        tail: z.number().optional().describe('Return last N lines (default: 100)'),
+        search: z.string().optional().describe('Filter lines containing this text (case-insensitive)'),
+        logPath: z.string().optional().describe('Override log file path (auto-detected if not set)'),
+      }),
+    },
+    async ({ tail = 100, search, logPath }) => {
+      const candidates = [logPath, config.logPath].filter(Boolean) as string[];
+
+      // Auto-detect: walk up from MCP script dir looking for txData/*/logs/fxserver.log
+      if (candidates.length === 0) {
+        const path = await import('node:path');
+        const fs = await import('node:fs');
+        let dir = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')));
+        for (let i = 0; i < 15; i++) {
+          const parent = path.dirname(dir);
+          if (parent === dir) break;
+          dir = parent;
+          const txData = path.join(dir, 'txData');
+          if (fs.existsSync(txData)) {
+            for (const profile of fs.readdirSync(txData)) {
+              candidates.push(path.join(txData, profile, 'logs', 'fxserver.log'));
+            }
+            break;
+          }
+        }
+      }
+
+      for (const p of candidates) {
+        try {
+          const s = await stat(p);
+          if (!s.isFile()) continue;
+          const content = await readFile(p, 'utf-8');
+          let lines = content.split('\n').filter(l => l.trim() !== '');
+          if (search) {
+            const q = search.toLowerCase();
+            lines = lines.filter(l => l.toLowerCase().includes(q));
+          }
+          if (lines.length > tail) lines = lines.slice(-tail);
+          return jsonText({ success: true, path: p, totalLines: content.split('\n').length, returned: lines.length, lines });
+        } catch { continue; }
+      }
+
+      return jsonText({ success: false, error: 'Could not find fxserver.log. Set FIVEM_LOG_PATH env var or pass logPath parameter.', triedPaths: candidates });
     },
   );
 }
