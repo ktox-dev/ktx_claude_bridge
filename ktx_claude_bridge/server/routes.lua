@@ -588,3 +588,107 @@ function HandleScreenshot(data, res)
         SendJson(res, 200, result)
     end)
 end
+
+--- POST /resource/file/read — read a file from any resource
+---@param data table { resource: string, path: string }
+---@param res table
+function HandleReadResourceFile(data, res)
+    if not data.resource or data.resource == '' then
+        SendJson(res, 400, { error = 'resource is required' })
+        return
+    end
+    if not data.path or data.path == '' then
+        SendJson(res, 400, { error = 'path is required' })
+        return
+    end
+    if GetResourceState(data.resource) == 'missing' then
+        SendJson(res, 404, { error = 'Resource not found: ' .. data.resource })
+        return
+    end
+
+    local content = LoadResourceFile(data.resource, data.path)
+    if content == nil then
+        SendJson(res, 404, { error = 'File not found: ' .. data.path .. ' in ' .. data.resource })
+        return
+    end
+
+    SendJson(res, 200, { success = true, resource = data.resource, path = data.path, size = #content, content = content })
+end
+
+--- POST /resource/file/write — write a file to a resource
+---@param data table { resource: string, path: string, content: string }
+---@param res table
+function HandleWriteResourceFile(data, res)
+    if not data.resource or data.resource == '' then
+        SendJson(res, 400, { error = 'resource is required' })
+        return
+    end
+    if not data.path or data.path == '' then
+        SendJson(res, 400, { error = 'path is required' })
+        return
+    end
+    if data.content == nil then
+        SendJson(res, 400, { error = 'content is required' })
+        return
+    end
+    if GetResourceState(data.resource) == 'missing' then
+        SendJson(res, 404, { error = 'Resource not found: ' .. data.resource })
+        return
+    end
+
+    local ok = SaveResourceFile(data.resource, data.path, data.content, -1)
+    if ok then
+        SendJson(res, 200, { success = true, resource = data.resource, path = data.path, size = #data.content })
+    else
+        SendJson(res, 500, { success = false, error = 'Failed to write file' })
+    end
+end
+
+--- POST /resource/files — list files in a resource using manifest metadata
+---@param data table { resource: string }
+---@param res table
+function HandleListResourceFiles(data, res)
+    if not data.resource or data.resource == '' then
+        SendJson(res, 400, { error = 'resource is required' })
+        return
+    end
+    if GetResourceState(data.resource) == 'missing' then
+        SendJson(res, 404, { error = 'Resource not found: ' .. data.resource })
+        return
+    end
+
+    local name <const> = data.resource
+    local files = {}
+    local keys <const> = { 'server_script', 'client_script', 'shared_script', 'file', 'ui_page' }
+    for _, key in ipairs(keys) do
+        local count = GetNumResourceMetadata(name, key)
+        for i = 0, count - 1 do
+            local val = GetResourceMetadata(name, key, i)
+            if val and val ~= '' then
+                files[#files + 1] = { path = val, type = key }
+            end
+        end
+    end
+
+    -- Also try fxmanifest.lua itself
+    local hasFxmanifest = LoadResourceFile(name, 'fxmanifest.lua') ~= nil
+    local hasResourceLua = LoadResourceFile(name, '__resource.lua') ~= nil
+
+    SendJson(res, 200, {
+        success = true,
+        resource = name,
+        state = GetResourceState(name),
+        resourcePath = GetResourcePath(name),
+        manifest = hasFxmanifest and 'fxmanifest.lua' or (hasResourceLua and '__resource.lua' or nil),
+        files = files,
+        total = #files,
+    })
+end
+
+--- GET /commands — list all registered commands
+---@param _params table
+---@param res table
+function HandleGetCommands(_params, res)
+    local cmds = GetRegisteredCommands()
+    SendJson(res, 200, { success = true, commands = cmds, total = #cmds })
+end

@@ -339,4 +339,103 @@ export function registerCdpTools(server: McpServer) {
       }
     },
   );
+
+  // ── Inject script into NUI frames ────────────────────────
+
+  server.registerTool(
+    'nui_inject_script',
+    {
+      description:
+        'Inject a JavaScript snippet that will execute automatically when any NUI frame loads or reloads. Useful for adding instrumentation, error logging, or debug hooks to all NUI pages. The script persists until the CDP connection is reset (bridge restart). Call with no arguments to clear all injected scripts.',
+      inputSchema: z.object({
+        script: z
+          .string()
+          .optional()
+          .describe('JavaScript code to inject before page load. Omit to clear all injected scripts.'),
+      }),
+    },
+    async ({ script }) => {
+      try {
+        if (!script) {
+          await cdp.send('Page.removeAllScriptsToEvaluateOnNewDocument');
+          return jsonText({ success: true, action: 'cleared' });
+        }
+        const result = (await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+          source: script,
+        })) as { identifier: string };
+        return jsonText({ success: true, action: 'injected', identifier: result.identifier });
+      } catch (err) {
+        return jsonText({ success: false, error: (err as Error).message });
+      }
+    },
+  );
+
+  // ── NUI network request monitoring ───────────────────────
+
+  server.registerTool(
+    'nui_network_monitor',
+    {
+      description:
+        'Start or stop monitoring HTTP/fetch requests made by NUI frames. When enabled, captures all network requests from all resource NUI pages. Call with action "start" to begin, "stop" to end and return captured requests, or "flush" to get captured requests without stopping.',
+      inputSchema: z.object({
+        action: z.enum(['start', 'stop', 'flush']).describe('"start" to begin monitoring, "stop" to end and return data, "flush" to get data without stopping'),
+      }),
+    },
+    async ({ action }) => {
+      try {
+        if (action === 'start') {
+          // Enable network tracking
+          await cdp.send('Network.enable');
+
+          // Inject a collector into the CDP event stream
+          const ws = (cdp as unknown as { ws: { on: (e: string, f: (d: Buffer) => void) => void } }).ws;
+          if (!ws) return jsonText({ success: false, error: 'CDP not connected' });
+
+          // Store requests in a buffer on the cdp object
+          const requests: unknown[] = [];
+          (cdp as unknown as { _networkRequests: unknown[] })._networkRequests = requests;
+
+          const handler = (data: Buffer) => {
+            try {
+              const msg = JSON.parse(data.toString());
+              if (msg.method === 'Network.requestWillBeSent') {
+                const req = msg.params?.request;
+                requests.push({
+                  url: req?.url?.substring(0, 500),
+                  method: req?.method,
+                  timestamp: msg.params?.timestamp,
+                  type: msg.params?.type,
+                  initiator: msg.params?.initiator?.type,
+                  frameId: msg.params?.frameId,
+                });
+                if (requests.length > 500) requests.shift();
+              }
+            } catch { /* ignore parse errors */ }
+          };
+          (cdp as unknown as { _networkHandler: typeof handler })._networkHandler = handler;
+          ws.on('message', handler);
+
+          return jsonText({ success: true, action: 'started' });
+        }
+
+        const requests = (cdp as unknown as { _networkRequests?: unknown[] })._networkRequests || [];
+
+        if (action === 'stop') {
+          await cdp.send('Network.disable').catch(() => {});
+          // Remove handler
+          const ws = (cdp as unknown as { ws: { removeListener: (e: string, f: unknown) => void } }).ws;
+          const handler = (cdp as unknown as { _networkHandler?: unknown })._networkHandler;
+          if (ws && handler) ws.removeListener('message', handler);
+          (cdp as unknown as { _networkRequests?: unknown[] })._networkRequests = undefined;
+          (cdp as unknown as { _networkHandler?: unknown })._networkHandler = undefined;
+          return jsonText({ success: true, action: 'stopped', requests, count: requests.length });
+        }
+
+        // flush
+        return jsonText({ success: true, action: 'flushed', requests, count: requests.length });
+      } catch (err) {
+        return jsonText({ success: false, error: (err as Error).message });
+      }
+    },
+  );
 }

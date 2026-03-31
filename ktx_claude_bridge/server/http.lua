@@ -45,6 +45,7 @@ local GET_ROUTES <const> = {
     ['/entities']        = HandleEntities,
     ['/console/server']  = HandleServerConsole,
     ['/console/client']  = HandleClientConsole,
+    ['/commands']        = HandleGetCommands,
 }
 
 -- POST route table
@@ -59,8 +60,11 @@ local POST_ROUTES <const> = {
     ['/command/client']   = HandleClientCommand,
     ['/db/query']         = HandleDbQuery,
     ['/nui/state']        = HandleNuiState,
-    ['/resource/restart'] = HandleRestartResource,
-    ['/screenshot']       = HandleScreenshot,
+    ['/resource/restart']    = HandleRestartResource,
+    ['/resource/file/read']  = HandleReadResourceFile,
+    ['/resource/file/write'] = HandleWriteResourceFile,
+    ['/resource/files']      = HandleListResourceFiles,
+    ['/screenshot']          = HandleScreenshot,
 }
 
 SetHttpHandler(function(req, res)

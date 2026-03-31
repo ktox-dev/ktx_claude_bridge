@@ -89,6 +89,60 @@ export function registerTools(server: McpServer) {
     async ({ name }) => jsonText(await request('GET', `/resource/info?name=${encodeURIComponent(name)}`)),
   );
 
+  // ── Resource file tools ──────────────────────────────────
+
+  server.registerTool(
+    'read_resource_file',
+    {
+      description:
+        'Read any file from any FiveM resource by name and path. Can read Lua source, configs, HTML, JSON — anything in the resource directory. Use list_resource_files first to discover available files.',
+      inputSchema: z.object({
+        resource: z.string().describe('Resource name (e.g. "ktx_garages", "ox_inventory")'),
+        path: z.string().describe('File path relative to resource root (e.g. "fxmanifest.lua", "server/main.lua", "shared/config.lua")'),
+      }),
+    },
+    async ({ resource, path }) =>
+      jsonText(await request('POST', '/resource/file/read', { resource, path })),
+  );
+
+  server.registerTool(
+    'write_resource_file',
+    {
+      description:
+        'Write a file to a FiveM resource directory. Can create new files or overwrite existing ones. Use with restart_resource for hot-reload. WARNING: Cannot write .lua/.js files unless the server has add_filesystem_permission configured. Safe for .json, .cfg, .html, .css, and data files.',
+      inputSchema: z.object({
+        resource: z.string().describe('Resource name'),
+        path: z.string().describe('File path relative to resource root'),
+        content: z.string().describe('File content to write'),
+      }),
+    },
+    async ({ resource, path, content }) =>
+      jsonText(await request('POST', '/resource/file/write', { resource, path, content })),
+  );
+
+  server.registerTool(
+    'list_resource_files',
+    {
+      description:
+        'List all known files in a FiveM resource. Discovers files from the resource manifest (server_scripts, client_scripts, shared_scripts, files, ui_page). Also returns the resource\'s absolute filesystem path and manifest file name.',
+      inputSchema: z.object({
+        resource: z.string().describe('Resource name'),
+      }),
+    },
+    async ({ resource }) =>
+      jsonText(await request('POST', '/resource/files', { resource })),
+  );
+
+  server.registerTool(
+    'get_registered_commands',
+    {
+      description:
+        'List ALL registered FiveM commands across all resources. Returns command name, owning resource, and arity. Use this to discover what commands are available before using run_command or run_client_command.',
+      inputSchema: z.object({}),
+    },
+    async () => jsonText(await request('GET', '/commands')),
+  );
+
   server.registerTool(
     'get_entities',
     {
@@ -417,6 +471,56 @@ export function registerTools(server: McpServer) {
       }
 
       return jsonText({ success: false, error: 'Could not find fxserver.log. Set FIVEM_LOG_PATH env var or pass logPath parameter.', triedPaths: candidates });
+    },
+  );
+
+  // ── Profiler tool ───────────────────────────────────────
+
+  server.registerTool(
+    'run_profiler',
+    {
+      description:
+        'Record a FiveM server CPU profile for a number of frames. Returns Chrome DevTools trace format JSON that can be analyzed for performance issues. Shows per-resource CPU usage and function-level timing.',
+      inputSchema: z.object({
+        frames: z.coerce.number().optional().describe('Number of frames to record (default: 500)'),
+      }),
+    },
+    async ({ frames = 500 }) => {
+      // Start recording
+      await request('POST', '/command', { command: `profiler record ${frames}` });
+
+      // Wait for recording to complete (rough estimate: ~8ms/frame)
+      const waitMs = Math.max(frames * 10, 2000);
+      await new Promise((r) => setTimeout(r, waitMs));
+
+      // Save to a temp file and read it
+      const filename = `__profiler_${Date.now()}.json`;
+      await request('POST', '/exec/server', {
+        code: `ExecuteCommand('profiler save ${filename}')`,
+      });
+
+      // Wait for save
+      await new Promise((r) => setTimeout(r, 1000));
+
+      // Read the saved file
+      const res = (await request('POST', '/exec/server', {
+        code: `return LoadResourceFile('${config.bridgeUrl.split('/').pop()}', '${filename}')`,
+      })) as { success?: boolean; result?: string };
+
+      if (res.success && res.result) {
+        // Clean up the temp file
+        await request('POST', '/exec/server', {
+          code: `SaveResourceFile(GetCurrentResourceName(), '${filename}', '', 0)`,
+        });
+        try {
+          const profile = JSON.parse(res.result);
+          return jsonText({ success: true, frames, profile });
+        } catch {
+          return text(res.result);
+        }
+      }
+
+      return jsonText({ success: false, error: 'Failed to capture profile. The profiler may not have finished recording.' });
     },
   );
 }
