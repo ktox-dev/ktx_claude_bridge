@@ -480,38 +480,32 @@ export function registerTools(server: McpServer) {
     'run_profiler',
     {
       description:
-        'Record a FiveM server CPU profile for a number of frames. Returns Chrome DevTools trace format JSON that can be analyzed for performance issues. Shows per-resource CPU usage and function-level timing.',
+        'Record a SERVER-SIDE CPU profile for a number of frames. Returns Chrome DevTools trace format JSON showing per-resource CPU usage, event handler timing, and thread activity. Note: this profiles the server only — client-side profiling requires the player to use the "profiler" command in F8 console. For NUI/JS performance, use nui_exec_js with performance.now() or the Performance CDP domain.',
       inputSchema: z.object({
         frames: z.coerce.number().optional().describe('Number of frames to record (default: 500)'),
       }),
     },
     async ({ frames = 500 }) => {
-      // Start recording
-      await request('POST', '/command', { command: `profiler record ${frames}` });
-
-      // Wait for recording to complete (rough estimate: ~8ms/frame)
-      const waitMs = Math.max(frames * 10, 2000);
-      await new Promise((r) => setTimeout(r, waitMs));
-
-      // Save to a temp file and read it
       const filename = `__profiler_${Date.now()}.json`;
-      await request('POST', '/exec/server', {
-        code: `ExecuteCommand('profiler save ${filename}')`,
-      });
 
-      // Wait for save
+      // Record, wait, save to bridge resource dir via @ path
+      await request('POST', '/command', { command: `profiler record ${frames}` });
+      await new Promise((r) => setTimeout(r, Math.max(frames * 10, 2000)));
+      await request('POST', '/command', { command: `profiler saveJSON @ktx_claude_bridge/${filename}` });
       await new Promise((r) => setTimeout(r, 1000));
 
-      // Read the saved file
+      // Read via LoadResourceFile + always clean up
       const res = (await request('POST', '/exec/server', {
-        code: `return LoadResourceFile('${config.bridgeUrl.split('/').pop()}', '${filename}')`,
+        code: `
+          local name = GetCurrentResourceName()
+          local content = LoadResourceFile(name, '${filename}')
+          local path = GetResourcePath(name) .. '/${filename}'
+          os.remove(path)
+          return content
+        `,
       })) as { success?: boolean; result?: string };
 
       if (res.success && res.result) {
-        // Clean up the temp file
-        await request('POST', '/exec/server', {
-          code: `SaveResourceFile(GetCurrentResourceName(), '${filename}', '', 0)`,
-        });
         try {
           const profile = JSON.parse(res.result);
           return jsonText({ success: true, frames, profile });
@@ -519,6 +513,11 @@ export function registerTools(server: McpServer) {
           return text(res.result);
         }
       }
+
+      // Clean up on failure too
+      await request('POST', '/exec/server', {
+        code: `os.remove(GetResourcePath(GetCurrentResourceName()) .. '/${filename}')`,
+      }).catch(() => {});
 
       return jsonText({ success: false, error: 'Failed to capture profile. The profiler may not have finished recording.' });
     },

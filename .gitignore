@@ -4,3 +4,4 @@ dist/
 .env.*
 *.log
 .claude
+__profiler_*.json
