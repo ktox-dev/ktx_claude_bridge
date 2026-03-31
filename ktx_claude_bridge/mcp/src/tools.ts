@@ -164,7 +164,7 @@ export function registerTools(server: McpServer) {
     'exec_client_lua',
     {
       description:
-        'Execute Lua code on a connected player\'s FiveM client. Runs in the BRIDGE resource\'s client-side Lua VM with access to client natives. If playerId is omitted, targets the first connected player.\n\nCommon patterns:\n- Player ped: PlayerPedId()\n- Position: GetEntityCoords(PlayerPedId())\n- Vehicle: GetVehiclePedIsIn(PlayerPedId(), false)\n- Teleport: SetEntityCoords(PlayerPedId(), x, y, z)\n- NUI focus: SetNuiFocus(true, true)\n- Key simulation: Use DisableControlAction/SetControlNormal in a thread\n\nIMPORTANT: Like exec_server_lua, this runs in the bridge\'s Lua VM. You can call other resources\' client exports with COLON syntax: exports.resourceName:exportName(args). You CANNOT access other resources\' globals/locals.',
+        'Execute Lua code on a connected player\'s FiveM client. Runs in the BRIDGE resource\'s client-side Lua VM with access to client natives. If playerId is omitted, targets the first connected player.\n\nCommon patterns:\n- Player ped: PlayerPedId()\n- Position: GetEntityCoords(PlayerPedId())\n- Vehicle: GetVehiclePedIsIn(PlayerPedId(), false)\n- Teleport: SetEntityCoords(PlayerPedId(), x, y, z)\n- Run commands: ExecuteCommand("commandname") — opens NUI menus, triggers actions\n\nINPUT LAYER WARNING: FiveM has two separate input layers — the GAME layer (GTA controls like movement, aim, enter vehicle) and the NUI layer (HTML/JS UI overlays). When a NUI menu is open (focused), keyboard/mouse input goes to NUI FIRST, not the game. SetControlNormal/DisableControlAction only affect GAME controls — they CANNOT close or interact with NUI menus. To interact with NUI menus, use the nui_* CDP tools (nui_click_element, nui_exec_js, etc). To close a NUI menu, use nui_click_element on its close button, or nui_exec_js to call the resource\'s close function.\n\nIMPORTANT: This runs in the bridge\'s Lua VM. You can call other resources\' client exports with COLON syntax: exports.resourceName:exportName(args). You CANNOT access other resources\' globals/locals.',
       inputSchema: z.object({
         code: z.string().describe('Lua code to execute on the client'),
         playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
@@ -254,7 +254,7 @@ export function registerTools(server: McpServer) {
     'run_client_command',
     {
       description:
-        'Run a registered FiveM command on a player\'s client. Executes ExecuteCommand() client-side. Examples: "e menu", "emote wave". If playerId is omitted, targets the first connected player.',
+        'Run a registered FiveM command on a player\'s client. Executes ExecuteCommand() client-side. Examples: "e menu", "emote wave", "garages". If playerId is omitted, targets the first connected player. Note: many commands open NUI menus — after running this, use nui_screenshot or take_screenshot to see the result, and nui_* tools to interact with any opened UI.',
       inputSchema: z.object({
         command: z.string().describe('Client-side command to execute'),
         playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
@@ -268,7 +268,7 @@ export function registerTools(server: McpServer) {
     'restart_resource',
     {
       description:
-        'Restart a FiveM resource (runs "ensure <name>"). Use get_server_console afterwards to check for startup errors. IMPORTANT: If you modified the resource\'s fxmanifest.lua (e.g. added scripts), run run_command({command: "refresh"}) BEFORE restarting — FiveM caches manifests and won\'t pick up changes without refresh.',
+        'Restart a FiveM resource (runs "ensure <name>"). Restarts are fast — typically under 1 second. Use get_server_console afterwards to check for startup errors. IMPORTANT: If you modified the resource\'s fxmanifest.lua (e.g. added scripts), run run_command({command: "refresh"}) BEFORE restarting — FiveM caches manifests and won\'t pick up changes without refresh.',
       inputSchema: z.object({
         resourceName: z.string().describe('Resource name to restart'),
       }),
@@ -283,7 +283,7 @@ export function registerTools(server: McpServer) {
     'take_screenshot',
     {
       description:
-        'Take a screenshot of a player\'s game screen (including game world + NUI overlay). Requires the "screencapture" resource (github.com/itschip/screencapture). Returns the image directly.',
+        'Take a screenshot of a player\'s FULL game screen (game world + NUI overlay composited together). Use this to see what the player actually sees. For NUI-only screenshots (transparent background, just the UI elements), use nui_screenshot instead. Requires the "screencapture" resource.',
       inputSchema: z.object({
         playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
       }),
@@ -309,7 +309,7 @@ export function registerTools(server: McpServer) {
     'get_nui_state',
     {
       description:
-        'Get the NUI (UI overlay) state on a player\'s client: whether NUI is focused, if cursor is active, etc.',
+        'Get the NUI (UI overlay) focus state on a player\'s client. Returns: focused (NUI is receiving input instead of the game), focusedKeepInput (NUI focused but game still receives input), cursorActive (mouse cursor visible). When focused=true, game controls like SetControlNormal will NOT work — input goes to NUI instead. Use nui_* tools to interact with the UI, or close the NUI menu first.',
       inputSchema: z.object({
         playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
       }),

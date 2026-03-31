@@ -113,7 +113,7 @@ export function registerCdpTools(server: McpServer) {
           .optional()
           .describe('Root element CSS selector (default: "body")'),
         depth: z
-          .number()
+          .coerce.number()
           .optional()
           .describe('Max depth to traverse (default: 4)'),
         resourceName: z
@@ -163,7 +163,7 @@ export function registerCdpTools(server: McpServer) {
     'nui_click_element',
     {
       description:
-        'Click a DOM element by CSS selector in any resource\'s NUI frame. By default uses synthetic click (el.click()). Set synthetic=false to use CDP mouse events at the element\'s center coordinates.',
+        'Click a DOM element by CSS selector in any resource\'s NUI frame. This is the correct way to interact with NUI menus and buttons — do NOT use game controls (SetControlNormal) for NUI interaction. By default uses synthetic click (el.click()). Set synthetic=false to use CDP mouse events at the element\'s center coordinates.',
       inputSchema: z.object({
         selector: z.string().describe('CSS selector of element to click'),
         resourceName: z
@@ -274,14 +274,14 @@ export function registerCdpTools(server: McpServer) {
     'nui_screenshot',
     {
       description:
-        'Take a CDP-native screenshot of the NUI layer (no game world, just the UI overlay). Returns base64-encoded image. Optionally clip to a specific resource\'s frame bounds.',
+        'Take a screenshot of ONLY the NUI layer (transparent background, just UI elements like menus, HUD, notifications). Use this to inspect NUI menus after opening them with run_client_command or trigger_client_event. For full game view (world + UI composited), use take_screenshot instead.',
       inputSchema: z.object({
         format: z
           .enum(['png', 'jpeg'])
           .optional()
           .describe('Image format (default: png)'),
         quality: z
-          .number()
+          .coerce.number()
           .optional()
           .describe('Compression quality 0-100 (jpeg only)'),
       }),
@@ -311,7 +311,7 @@ export function registerCdpTools(server: McpServer) {
     'nui_simulate_click',
     {
       description:
-        'Simulate a mouse click at absolute pixel coordinates in the NUI layer. Works on any visible NUI element from any resource. Use nui_screenshot + take_screenshot to identify element positions first.',
+        'Simulate a mouse click at absolute pixel coordinates in the NUI layer. Works on any visible NUI element from any resource. Use nui_screenshot to see NUI element positions, or take_screenshot to see the full game view. Prefer nui_click_element with a CSS selector when possible — use this only when you need coordinate-based clicking.',
       inputSchema: z.object({
         x: z.coerce.number().describe('X pixel coordinate'),
         y: z.coerce.number().describe('Y pixel coordinate'),
