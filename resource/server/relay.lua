@@ -1,0 +1,96 @@
+local TIMEOUT <const> = Config.clientExecTimeout
+local nextId = 0
+
+---@class PendingCallback
+---@field resolve fun(result: table)
+---@field source integer
+
+--- Pending callbacks keyed by request ID.
+---@type table<string, PendingCallback>
+PendingCallbacks = {}
+
+--- Generate a unique request ID.
+---@return string
+local function generateId()
+    nextId = nextId + 1
+    return ('cb_%d_%d'):format(os.time(), nextId)
+end
+
+--- Execute code on a connected client.
+---@param playerId integer
+---@param code string
+---@param resolve fun(result: table)
+function ExecOnClient(playerId, code, resolve)
+    local id = generateId()
+
+    PendingCallbacks[id] = { resolve = resolve, source = playerId }
+
+    TriggerClientEvent('ktx_cb:exec', playerId, id, code)
+
+    -- Timeout
+    SetTimeout(TIMEOUT, function()
+        local pending = PendingCallbacks[id]
+        if pending then
+            PendingCallbacks[id] = nil
+            pending.resolve({
+                success = false,
+                error = ('Client exec timed out after %dms (player %d)'):format(TIMEOUT, playerId),
+            })
+        end
+    end)
+end
+
+--- Take a screenshot via screencapture server export.
+---@param playerId integer
+---@param resolve fun(result: table)
+function TakeScreenshot(playerId, resolve)
+    if GetResourceState('screencapture') ~= 'started' then
+        resolve({ success = false, error = 'screencapture resource is not running. Install from: https://github.com/itschip/screencapture' })
+        return
+    end
+
+    local id = generateId()
+    PendingCallbacks[id] = { resolve = resolve, source = playerId }
+
+    -- Use server-side export — no client relay needed
+    exports.screencapture:serverCapture(playerId, { encoding = 'webp' }, function(data)
+        local pending = PendingCallbacks[id]
+        if pending then
+            PendingCallbacks[id] = nil
+            pending.resolve({ success = true, data = data, encoding = 'webp' })
+        end
+    end, 'base64')
+
+    -- Timeout
+    SetTimeout(TIMEOUT * 2, function()
+        local pending = PendingCallbacks[id]
+        if pending then
+            PendingCallbacks[id] = nil
+            pending.resolve({ success = false, error = 'Screenshot timed out' })
+        end
+    end)
+end
+
+-- Receive client exec result
+RegisterNetEvent('ktx_cb:execResult')
+AddEventHandler('ktx_cb:execResult', function(requestId, result, err)
+    local pending = PendingCallbacks[requestId]
+    if not pending then return end
+
+    PendingCallbacks[requestId] = nil
+
+    if err then
+        pending.resolve({ success = false, error = err })
+    else
+        pending.resolve({ success = true, result = result })
+    end
+end)
+
+-- Receive client console lines
+RegisterNetEvent('ktx_cb:clientConsole')
+AddEventHandler('ktx_cb:clientConsole', function(entries)
+    local src = source
+    if type(entries) == 'table' then
+        AddClientConsole(src, entries)
+    end
+end)
