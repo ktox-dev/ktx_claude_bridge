@@ -3,4 +3,5 @@ export const config = {
   token: process.env.FIVEM_BRIDGE_TOKEN || '',
   timeout: parseInt(process.env.FIVEM_BRIDGE_TIMEOUT || '15000', 10),
   logPath: process.env.FIVEM_LOG_PATH || '',
+  cdpPort: parseInt(process.env.FIVEM_CDP_PORT || '13172', 10),
 } as const;
