@@ -66,8 +66,8 @@ ensure ktx_claude_bridge
 
 ```bash
 cd ktx_claude_bridge/mcp
-npm install
-npm run build
+pnpm install
+pnpm run build
 ```
 
 ### 3. Claude Code Configuration

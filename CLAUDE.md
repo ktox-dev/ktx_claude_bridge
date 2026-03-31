@@ -39,7 +39,7 @@ Claude Code ──stdio──> MCP Server (Node.js, mcp/)
 ## Build
 
 ```bash
-cd ktx_claude_bridge/mcp && npm install && npm run build
+cd ktx_claude_bridge/mcp && pnpm install && pnpm run build
 ```
 
 ## Configuration
