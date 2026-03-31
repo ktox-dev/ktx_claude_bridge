@@ -19,3 +19,8 @@ server_scripts {
 client_scripts {
     'client/relay.lua',
 }
+
+-- exec_bridge.lua must be in files{} so other resources can load it client-side via shared_script '@ktx_claude_bridge/exec_bridge.lua'
+files {
+    'exec_bridge.lua',
+}

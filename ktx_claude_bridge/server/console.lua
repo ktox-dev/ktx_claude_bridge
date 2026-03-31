@@ -68,7 +68,7 @@ ClientConsoles = {}
 ---@param since? number
 ---@return table[]
 function GetServerConsole(count, since)
-    local ok, result = pcall(exports[HELPER].getConsole, count, since)
+    local ok, result = pcall(function() return exports[HELPER]:getConsole(count, since) end)
     if ok then return result end
     return {}
 end
@@ -77,16 +77,18 @@ end
 ---@param message string
 ---@param resource? string
 function AddServerConsole(level, message, resource)
-    pcall(exports[HELPER].addConsole, {
-        timestamp = os.time(),
-        level = level,
-        message = message,
-        resource = resource or GetCurrentResourceName(),
-    })
+    pcall(function()
+        exports[HELPER]:addConsole({
+            timestamp = os.time(),
+            level = level,
+            message = message,
+            resource = resource or GetCurrentResourceName(),
+        })
+    end)
 end
 
 function ClearServerConsole()
-    pcall(exports[HELPER].clearConsole)
+    pcall(function() exports[HELPER]:clearConsole() end)
 end
 
 -- Client console functions

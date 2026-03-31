@@ -98,6 +98,73 @@ AddEventHandler('ktx_cb:clientConsole', function(entries)
     end
 end)
 
+--- Execute code inside another resource's Lua VM (server-side).
+--- Requires the target resource to have: shared_script '@ktx_claude_bridge/exec_bridge.lua'
+---@param resource string
+---@param code string
+---@param resolve fun(result: table)
+function ExecScoped(resource, code, resolve)
+    local id = generateId()
+    PendingCallbacks[id] = { resolve = resolve, source = 0 }
+
+    TriggerEvent('ktx_cb:execScoped', id, resource, code)
+
+    SetTimeout(TIMEOUT, function()
+        local pending = PendingCallbacks[id]
+        if pending then
+            PendingCallbacks[id] = nil
+            pending.resolve({
+                success = false,
+                error = ('Scoped exec timed out after %dms — does %s have shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest?'):format(TIMEOUT, resource),
+            })
+        end
+    end)
+end
+
+--- Execute code inside another resource's client-side Lua VM.
+--- Requires the target resource to have: shared_script '@ktx_claude_bridge/exec_bridge.lua'
+---@param playerId integer
+---@param resource string
+---@param code string
+---@param resolve fun(result: table)
+function ExecScopedClient(playerId, resource, code, resolve)
+    local id = generateId()
+    PendingCallbacks[id] = { resolve = resolve, source = playerId }
+
+    TriggerClientEvent('ktx_cb:execScoped', playerId, id, resource, code)
+
+    SetTimeout(TIMEOUT, function()
+        local pending = PendingCallbacks[id]
+        if pending then
+            PendingCallbacks[id] = nil
+            pending.resolve({
+                success = false,
+                error = ('Scoped client exec timed out after %dms — does %s have shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest?'):format(TIMEOUT, resource),
+            })
+        end
+    end)
+end
+
+-- Receive scoped exec results (server-side, local event only — NOT network-reachable)
+AddEventHandler('ktx_cb:execScopedResult', function(result)
+    if not result or not result.requestId then return end
+    local pending = PendingCallbacks[result.requestId]
+    if not pending then return end
+    PendingCallbacks[result.requestId] = nil
+    pending.resolve(result)
+end)
+
+-- Receive scoped exec results (client-side, separate net event name)
+RegisterNetEvent('ktx_cb:execScopedClientResult')
+AddEventHandler('ktx_cb:execScopedClientResult', function(result)
+    if not result or not result.requestId then return end
+    local pending = PendingCallbacks[result.requestId]
+    if not pending then return end
+    if pending.source ~= source then return end
+    PendingCallbacks[result.requestId] = nil
+    pending.resolve(result)
+end)
+
 -- Sync time with client on connect
 AddEventHandler('playerJoining', function()
     local src = source

@@ -16,16 +16,6 @@ export function registerTools(server: McpServer) {
   // ── GET tools ────────────────────────────────────────────
 
   server.registerTool(
-    'get_server_status',
-    {
-      description:
-        'Get FiveM server status: player count, resource count, uptime, server name. Use this first to check if the bridge is alive.',
-      inputSchema: z.object({}),
-    },
-    async () => jsonText(await request('GET', '/status')),
-  );
-
-  server.registerTool(
     'get_players',
     {
       description:
@@ -49,7 +39,7 @@ export function registerTools(server: McpServer) {
     'get_server_info',
     {
       description:
-        'Get extended server info: hostname, OneSync status, max clients, locale, framework detection (qbx_core, ox_lib, oxmysql, ox_inventory), resource counts, and connected player IDs.',
+        'Get server info and health check. Returns: hostname, player count, OneSync status, max clients, locale, framework detection (qbx_core, ox_lib, oxmysql, ox_inventory), resource counts (started/stopped), uptime, and connected player IDs. Use this first to check if the bridge is alive.',
       inputSchema: z.object({}),
     },
     async () => jsonText(await request('GET', '/server/info')),
@@ -73,9 +63,9 @@ export function registerTools(server: McpServer) {
     'get_player_data',
     {
       description:
-        'Get Qbox player data (job, gang, money, charinfo, metadata). Works for online and offline players. Requires qbx_core.',
+        'Get Qbox player data (job, gang, money, charinfo, metadata). Works for online and offline players. Requires qbx_core. Prefer this over manually calling exports — the export name is exports.qbx_core:GetPlayer(src), NOT GetPlayerData.',
       inputSchema: z.object({
-        playerId: z.number().optional().describe('Server ID of online player'),
+        playerId: z.coerce.number().optional().describe('Server ID of online player'),
         citizenid: z.string().optional().describe('CitizenID (works for offline players too)'),
       }),
     },
@@ -121,10 +111,10 @@ export function registerTools(server: McpServer) {
     'get_server_console',
     {
       description:
-        'Get recent server console output (print statements, resource start/stop events, exec errors). Use after restarting a resource to check for errors.',
+        'Get recent server console output (print statements, resource start/stop events, exec errors). Use after restarting a resource to check for errors. Each line has a "resource" field (e.g. "script:ktx_garages", "citizen-server-impl") — use this to mentally filter for the resource you care about. Note: output can be noisy with hitch warnings and server list errors from "citizen-server-impl" — ignore those.',
       inputSchema: z.object({
-        count: z.number().optional().describe('Max lines to return'),
-        since: z.number().optional().describe('Unix timestamp — only return lines after this time'),
+        count: z.coerce.number().optional().describe('Max lines to return'),
+        since: z.coerce.number().optional().describe('Unix timestamp (seconds) — only return lines after this time. Use exec_server_lua with "return os.time()" to get the current server timestamp.'),
       }),
     },
     async ({ count, since }) => {
@@ -142,9 +132,9 @@ export function registerTools(server: McpServer) {
       description:
         'Get recent client-side console output for a specific player (print statements, exec results/errors).',
       inputSchema: z.object({
-        playerId: z.number().describe('Player server ID'),
-        count: z.number().optional().describe('Max lines to return'),
-        since: z.number().optional().describe('Unix timestamp'),
+        playerId: z.coerce.number().describe('Player server ID'),
+        count: z.coerce.number().optional().describe('Max lines to return'),
+        since: z.coerce.number().optional().describe('Unix timestamp'),
       }),
     },
     async ({ playerId, count, since }) => {
@@ -162,7 +152,7 @@ export function registerTools(server: McpServer) {
     'exec_server_lua',
     {
       description:
-        'Execute Lua code on the FiveM server and return the result. Runs in server context with access to all server-side natives and globals. Use "return" to get values back. Examples: "return GetNumPlayerIndices()", "return GetResourceState(\'myresource\')".',
+        'Execute Lua code on the FiveM server and return the result. Runs in the BRIDGE resource\'s server-side Lua VM — you have access to all server natives and can call other resources via exports (use COLON syntax: exports.resourceName:exportName(args)). You CANNOT access other resources\' local/global variables directly. Use "return" to get values back.\n\nCommon patterns:\n- Get player: exports.qbx_core:GetPlayer(serverId)\n- Statebags: Player(serverId).state.keyName or GetStateBagValue("player:"..id, "key")\n- DB query: exports.oxmysql:executeSync("SELECT ...", {})\n- Resource state: GetResourceState("name")\n\nIMPORTANT: ox_lib\'s "lib" global is NOT available here (it only exists inside resources that depend on ox_lib). To call lib.callback targets, trigger the underlying event or use the resource\'s exports instead.',
       inputSchema: z.object({
         code: z.string().describe('Lua code to execute'),
       }),
@@ -174,14 +164,45 @@ export function registerTools(server: McpServer) {
     'exec_client_lua',
     {
       description:
-        'Execute Lua code on a connected player\'s FiveM client. Runs in client context with access to client-side natives (PlayerPedId, GetEntityCoords, etc). If playerId is omitted, targets the first connected player. Returns the result asynchronously.',
+        'Execute Lua code on a connected player\'s FiveM client. Runs in the BRIDGE resource\'s client-side Lua VM with access to client natives. If playerId is omitted, targets the first connected player.\n\nCommon patterns:\n- Player ped: PlayerPedId()\n- Position: GetEntityCoords(PlayerPedId())\n- Vehicle: GetVehiclePedIsIn(PlayerPedId(), false)\n- Teleport: SetEntityCoords(PlayerPedId(), x, y, z)\n- NUI focus: SetNuiFocus(true, true)\n- Key simulation: Use DisableControlAction/SetControlNormal in a thread\n\nIMPORTANT: Like exec_server_lua, this runs in the bridge\'s Lua VM. You can call other resources\' client exports with COLON syntax: exports.resourceName:exportName(args). You CANNOT access other resources\' globals/locals.',
       inputSchema: z.object({
         code: z.string().describe('Lua code to execute on the client'),
-        playerId: z.number().optional().describe('Player server ID (default: first connected player)'),
+        playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
       }),
     },
     async ({ code, playerId }) =>
       jsonText(await request('POST', '/exec/client', { code, playerId })),
+  );
+
+  // ── Scoped exec tools ─────────────────────────────────────
+
+  server.registerTool(
+    'exec_server_lua_scoped',
+    {
+      description:
+        'Execute Lua code INSIDE another resource\'s server-side Lua VM. This gives you full access to that resource\'s globals, locals, lib, and internal state. Requires the target resource to have: shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest.lua. Use "return" to get values back.\n\nExample: exec_server_lua_scoped({resource: "ktx_garages", code: "return GarageDefinitions"})',
+      inputSchema: z.object({
+        code: z.string().describe('Lua code to execute inside the target resource\'s VM'),
+        resource: z.string().describe('Target resource name (e.g. "ktx_garages", "ox_inventory")'),
+      }),
+    },
+    async ({ code, resource }) =>
+      jsonText(await request('POST', '/exec/server/scoped', { code, resource })),
+  );
+
+  server.registerTool(
+    'exec_client_lua_scoped',
+    {
+      description:
+        'Execute Lua code INSIDE another resource\'s client-side Lua VM on a player\'s machine. This gives you full access to that resource\'s client globals, state, and lib. Requires the target resource to have: shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest.lua. After adding exec_bridge.lua, run refresh + restart both ktx_claude_bridge and the target resource.',
+      inputSchema: z.object({
+        code: z.string().describe('Lua code to execute inside the target resource\'s client VM'),
+        resource: z.string().describe('Target resource name'),
+        playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
+      }),
+    },
+    async ({ code, resource, playerId }) =>
+      jsonText(await request('POST', '/exec/client/scoped', { code, resource, playerId })),
   );
 
   // ── Event tools ──────────────────────────────────────────
@@ -207,7 +228,7 @@ export function registerTools(server: McpServer) {
         'Trigger a client event on a specific player with optional arguments.',
       inputSchema: z.object({
         eventName: z.string().describe('Event name'),
-        playerId: z.number().describe('Player server ID'),
+        playerId: z.coerce.number().describe('Player server ID'),
         args: z.array(z.unknown()).optional().describe('Event arguments'),
       }),
     },
@@ -236,7 +257,7 @@ export function registerTools(server: McpServer) {
         'Run a registered FiveM command on a player\'s client. Executes ExecuteCommand() client-side. Examples: "e menu", "emote wave". If playerId is omitted, targets the first connected player.',
       inputSchema: z.object({
         command: z.string().describe('Client-side command to execute'),
-        playerId: z.number().optional().describe('Player server ID (default: first connected player)'),
+        playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
       }),
     },
     async ({ command, playerId }) =>
@@ -247,7 +268,7 @@ export function registerTools(server: McpServer) {
     'restart_resource',
     {
       description:
-        'Restart a FiveM resource (runs "ensure <name>"). Use get_server_console afterwards to check for startup errors.',
+        'Restart a FiveM resource (runs "ensure <name>"). Use get_server_console afterwards to check for startup errors. IMPORTANT: If you modified the resource\'s fxmanifest.lua (e.g. added scripts), run run_command({command: "refresh"}) BEFORE restarting — FiveM caches manifests and won\'t pick up changes without refresh.',
       inputSchema: z.object({
         resourceName: z.string().describe('Resource name to restart'),
       }),
@@ -262,32 +283,23 @@ export function registerTools(server: McpServer) {
     'take_screenshot',
     {
       description:
-        'Take a screenshot of a player\'s screen. Requires the "screencapture" resource (github.com/itschip/screencapture). Returns base64 webp image data.',
+        'Take a screenshot of a player\'s game screen (including game world + NUI overlay). Requires the "screencapture" resource (github.com/itschip/screencapture). Returns the image directly.',
       inputSchema: z.object({
-        playerId: z.number().optional().describe('Player server ID (default: first connected player)'),
+        playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
       }),
     },
-    async ({ playerId }) =>
-      jsonText(await request('POST', '/screenshot', { playerId })),
-  );
-
-  // ── NUI convenience tool ─────────────────────────────────
-
-  server.registerTool(
-    'send_nui_message',
-    {
-      description:
-        'Send a NUI message to a resource on a player\'s client. Internally uses TriggerEvent to dispatch to the target resource\'s NUI frame. The target resource must handle the __cfx_nui event.',
-      inputSchema: z.object({
-        playerId: z.number().optional().describe('Player server ID (default: first connected player)'),
-        resourceName: z.string().describe('Target resource name'),
-        message: z.record(z.unknown()).describe('NUI message object (e.g. {action: "open", data: {}})'),
-      }),
-    },
-    async ({ playerId, resourceName, message }) => {
-      const msgJson = JSON.stringify(message).replace(/'/g, "\\'");
-      const code = `TriggerEvent('__cfx_nui:${resourceName}', '${msgJson}')  return 'sent'`;
-      return jsonText(await request('POST', '/exec/client', { code, playerId }));
+    async ({ playerId }) => {
+      const res = await request('POST', '/screenshot', { playerId }) as { success?: boolean; error?: string; data?: string; encoding?: string };
+      if (!res.success || !res.data) {
+        return text(res.error || 'Screenshot failed');
+      }
+      // Extract MIME type from data URI prefix, then strip it
+      const prefixMatch = res.data.match(/^data:([^;]+);base64,/);
+      const mimeType = prefixMatch?.[1] ?? 'image/webp';
+      const raw = prefixMatch ? res.data.slice(prefixMatch[0].length) : res.data;
+      return {
+        content: [{ type: 'image' as const, data: raw, mimeType }],
+      };
     },
   );
 
@@ -299,7 +311,7 @@ export function registerTools(server: McpServer) {
       description:
         'Get the NUI (UI overlay) state on a player\'s client: whether NUI is focused, if cursor is active, etc.',
       inputSchema: z.object({
-        playerId: z.number().optional().describe('Player server ID (default: first connected player)'),
+        playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
       }),
     },
     async ({ playerId }) =>
@@ -314,24 +326,27 @@ export function registerTools(server: McpServer) {
       description:
         'Poll the server console for new output over a duration. Useful after restart_resource to watch for startup errors. Returns all new lines that appeared during the watch period. Stops early if no new lines for 5 seconds.',
       inputSchema: z.object({
-        duration: z.number().optional().describe('How long to watch in seconds (default: 15)'),
-        interval: z.number().optional().describe('Poll interval in seconds (default: 2)'),
+        duration: z.coerce.number().optional().describe('How long to watch in seconds (default: 15)'),
+        interval: z.coerce.number().optional().describe('Poll interval in seconds (default: 2)'),
       }),
     },
     async ({ duration = 15, interval = 2 }) => {
       const allLines: unknown[] = [];
-      const since = Math.floor(Date.now() / 1000) - 1;
-      const endTime = Date.now() + duration * 1000;
+      let since = Math.floor(Date.now() / 1000) - 1;
+      const startTime = Date.now();
+      const endTime = startTime + duration * 1000;
       let lastNewLineTime = Date.now();
 
       while (Date.now() < endTime) {
         const res = await request('GET', `/console/server?since=${since}`);
-        const lines = (res as { lines?: unknown[] }).lines || [];
+        const lines = (res as { lines?: { timestamp?: number }[] }).lines || [];
 
-        if (lines.length > allLines.length) {
-          const newLines = lines.slice(allLines.length);
-          allLines.push(...newLines);
+        if (lines.length > 0) {
+          allLines.push(...lines);
           lastNewLineTime = Date.now();
+          // Advance since to the latest timestamp to avoid re-fetching
+          const lastTs = lines[lines.length - 1]?.timestamp;
+          if (typeof lastTs === 'number') since = lastTs;
         }
 
         // Stop early if no new lines for 5s
@@ -344,7 +359,7 @@ export function registerTools(server: McpServer) {
 
       return jsonText({
         success: true,
-        watchedSeconds: Math.round((Date.now() - (since * 1000 + 1000)) / 1000),
+        watchedSeconds: Math.round((Date.now() - startTime) / 1000),
         lines: allLines,
         total: allLines.length,
       });
@@ -359,7 +374,7 @@ export function registerTools(server: McpServer) {
       description:
         'Read the full FiveM server log file (fxserver.log from txAdmin). Contains ALL console output since server start including early boot messages. Use "tail" param to get last N lines, or "search" to grep for a pattern. Much more complete than get_server_console.',
       inputSchema: z.object({
-        tail: z.number().optional().describe('Return last N lines (default: 100)'),
+        tail: z.coerce.number().optional().describe('Return last N lines (default: 100)'),
         search: z.string().optional().describe('Filter lines containing this text (case-insensitive)'),
         logPath: z.string().optional().describe('Override log file path (auto-detected if not set)'),
       }),
@@ -371,7 +386,7 @@ export function registerTools(server: McpServer) {
       if (candidates.length === 0) {
         const path = await import('node:path');
         const fs = await import('node:fs');
-        let dir = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')));
+        let dir = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([a-zA-Z]:)/, '$1')));
         for (let i = 0; i < 15; i++) {
           const parent = path.dirname(dir);
           if (parent === dir) break;

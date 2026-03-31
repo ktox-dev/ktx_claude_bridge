@@ -49,8 +49,10 @@ local GET_ROUTES <const> = {
 
 -- POST route table
 local POST_ROUTES <const> = {
-    ['/exec/server']      = HandleExecServer,
-    ['/exec/client']      = HandleExecClient,
+    ['/exec/server']         = HandleExecServer,
+    ['/exec/client']         = HandleExecClient,
+    ['/exec/server/scoped']  = HandleExecServerScoped,
+    ['/exec/client/scoped']  = HandleExecClientScoped,
     ['/event/server']     = HandleTriggerServerEvent,
     ['/event/client']     = HandleTriggerClientEvent,
     ['/command']          = HandleCommand,

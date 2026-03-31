@@ -414,7 +414,7 @@ function HandleCommand(data, res)
     if lower:match('^%s*ensure%s+' .. resourceName) or
        lower:match('^%s*restart%s+' .. resourceName) or
        lower:match('^%s*stop%s+' .. resourceName) then
-        local ok = pcall(exports['ktx_bridge_helper'].restartBridge)
+        local ok = pcall(function() exports['ktx_bridge_helper']:restartBridge() end)
         if ok then
             SendJson(res, 200, { success = true, deferred = true })
         else
@@ -443,7 +443,7 @@ function HandleRestartResource(data, res)
 
     if data.resourceName == resourceName then
         -- Use helper resource to restart us from outside
-        local ok = pcall(exports['ktx_bridge_helper'].restartBridge)
+        local ok = pcall(function() exports['ktx_bridge_helper']:restartBridge() end)
         if ok then
             SendJson(res, 200, { success = true, message = 'ensure ' .. data.resourceName, deferred = true })
         else
@@ -480,6 +480,62 @@ function HandleClientCommand(data, res)
     local code = ("ExecuteCommand('%s') return 'executed'"):format(escaped)
 
     ExecOnClient(playerId, code, function(result)
+        SendJson(res, 200, result)
+    end)
+end
+
+--- POST /exec/server/scoped — execute Lua inside another resource's server VM
+---@param data table { code: string, resource: string }
+---@param res table
+function HandleExecServerScoped(data, res)
+    if not data.code or data.code == '' then
+        SendJson(res, 400, { error = 'code is required' })
+        return
+    end
+    if not data.resource or data.resource == '' then
+        SendJson(res, 400, { error = 'resource is required' })
+        return
+    end
+
+    if GetResourceState(data.resource) ~= 'started' then
+        SendJson(res, 400, { error = 'Resource not started: ' .. data.resource })
+        return
+    end
+
+    ExecScoped(data.resource, data.code, function(result)
+        SendJson(res, 200, result)
+    end)
+end
+
+--- POST /exec/client/scoped — execute Lua inside another resource's client VM
+---@param data table { code: string, resource: string, playerId?: integer }
+---@param res table
+function HandleExecClientScoped(data, res)
+    if not data.code or data.code == '' then
+        SendJson(res, 400, { error = 'code is required' })
+        return
+    end
+    if not data.resource or data.resource == '' then
+        SendJson(res, 400, { error = 'resource is required' })
+        return
+    end
+
+    if GetResourceState(data.resource) ~= 'started' then
+        SendJson(res, 400, { error = 'Resource not started: ' .. data.resource })
+        return
+    end
+
+    local playerId = data.playerId
+    if not playerId then
+        local players = GetPlayers()
+        if #players == 0 then
+            SendJson(res, 400, { error = 'No players connected' })
+            return
+        end
+        playerId = tonumber(players[1])
+    end
+
+    ExecScopedClient(playerId, data.resource, data.code, function(result)
         SendJson(res, 200, result)
     end)
 end
