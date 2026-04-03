@@ -70,7 +70,8 @@ ClientConsoles = {}
 function GetServerConsole(count, since)
     local ok, result = pcall(function() return exports[HELPER]:getConsole(count, since) end)
     if ok then return result end
-    return {}
+    -- Return a diagnostic entry so the caller knows the helper is down
+    return {{ timestamp = os.time(), level = 'error', message = 'ktx_bridge_helper is not running — console capture unavailable. Ensure ktx_bridge_helper before ktx_claude_bridge in server.cfg.', resource = 'ktx_claude_bridge' }}
 end
 
 ---@param level string

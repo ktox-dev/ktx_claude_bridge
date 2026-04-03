@@ -254,6 +254,14 @@ export class CDPClient {
   ): Promise<unknown> {
     const contextId = await this.getContextForResource(resourceName);
 
+    if (resourceName && contextId === undefined) {
+      throw new Error(
+        `No execution context found for resource "${resourceName}". ` +
+        `The resource may not have a NUI page, may not be started, or its frame hasn't loaded yet. ` +
+        `Use nui_list_frames to see available NUI resources.`
+      );
+    }
+
     const params: Record<string, unknown> = {
       expression: `(async () => { ${code} })()`,
       returnByValue: true,

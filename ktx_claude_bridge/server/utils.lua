@@ -96,7 +96,8 @@ function ParseBody(req, res, cb)
 
         local ok, data = pcall(json.decode, body)
         if not ok or type(data) ~= 'table' then
-            SendJson(res, 400, { error = 'Invalid JSON' })
+            local preview = #body > 120 and body:sub(1, 120) .. '...' or body
+            SendJson(res, 400, { error = 'Invalid JSON: ' .. preview })
             return
         end
 

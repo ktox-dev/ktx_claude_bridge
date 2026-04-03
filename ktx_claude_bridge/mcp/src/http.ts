@@ -20,24 +20,33 @@ export async function request(
     headers['Authorization'] = `Bearer ${config.token}`;
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(config.timeout),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(config.timeout),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('abort') || msg.includes('timeout')) {
+      throw new Error(`Bridge request timed out after ${config.timeout}ms: ${method} ${path}`);
+    }
+    throw new Error(`Bridge unreachable (${method} ${path}): ${msg}. Is the FiveM server running with ktx_claude_bridge started?`);
+  }
 
-  const text = await res.text();
+  const responseText = await res.text();
 
   let data: BridgeResponse;
   try {
-    data = JSON.parse(text);
+    data = JSON.parse(responseText);
   } catch {
-    throw new Error(`Bridge returned non-JSON (status ${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`Bridge returned non-JSON (${method} ${path}, status ${res.status}): ${responseText.slice(0, 200)}`);
   }
 
   if (!res.ok && !data.error) {
-    data.error = `HTTP ${res.status}`;
+    data.error = `HTTP ${res.status}: ${method} ${path}`;
   }
 
   return data;

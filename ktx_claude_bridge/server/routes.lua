@@ -1,6 +1,38 @@
 local startTime <const> = os.time()
 local resourceName <const> = GetCurrentResourceName()
 
+--- Check if a player is connected to the server.
+---@param playerId integer
+---@return boolean
+local function IsPlayerConnected(playerId)
+    return GetPlayerName(playerId) ~= nil
+end
+
+--- Resolve playerId from data, validate online status, and send error if invalid.
+--- Returns playerId on success, nil on failure (error already sent to res).
+---@param data table { playerId?: integer }
+---@param res table
+---@param label string Operation label for error messages
+---@return integer?
+local function ResolvePlayer(data, res, label)
+    local playerId = data.playerId
+    if not playerId then
+        local players = GetPlayers()
+        if #players == 0 then
+            SendJson(res, 400, { error = label .. ': No players connected' })
+            return nil
+        end
+        playerId = tonumber(players[1])
+    end
+
+    if not IsPlayerConnected(playerId) then
+        SendJson(res, 400, { error = label .. ': Player ' .. tostring(playerId) .. ' is not connected' })
+        return nil
+    end
+
+    return playerId
+end
+
 --- GET /status — server health check
 ---@param _params table
 ---@param res table
@@ -149,10 +181,21 @@ function HandlePlayerData(params, res)
     end
 
     local player
+    local lookupError
     if params.playerId then
         local src = tonumber(params.playerId)
+        if not IsPlayerConnected(src) then
+            SendJson(res, 400, { error = 'get_player_data: Player ' .. tostring(src) .. ' is not connected. Use citizenid param for offline lookups.' })
+            return
+        end
         local ok, p = pcall(function() return exports.qbx_core:GetPlayer(src) end)
-        if ok and p then player = p end
+        if not ok then
+            lookupError = 'exports.qbx_core:GetPlayer() failed: ' .. tostring(p)
+        elseif not p then
+            lookupError = 'Player ' .. tostring(src) .. ' is connected but has no Qbox player data (not yet loaded or not a Qbox player)'
+        else
+            player = p
+        end
     elseif params.citizenid then
         -- Try online first, then offline
         local ok, p = pcall(function() return exports.qbx_core:GetPlayerByCitizenId(params.citizenid) end)
@@ -160,7 +203,11 @@ function HandlePlayerData(params, res)
             player = p
         else
             local ok2, p2 = pcall(function() return exports.qbx_core:GetOfflinePlayer(params.citizenid) end)
-            if ok2 and p2 then player = p2 end
+            if ok2 and p2 then
+                player = p2
+            else
+                lookupError = 'No player found with citizenid "' .. params.citizenid .. '" (checked online and offline)'
+            end
         end
     else
         SendJson(res, 400, { error = 'playerId or citizenid query param is required' })
@@ -168,7 +215,7 @@ function HandlePlayerData(params, res)
     end
 
     if not player or not player.PlayerData then
-        SendJson(res, 404, { error = 'Player not found' })
+        SendJson(res, 404, { error = lookupError or 'Player not found' })
         return
     end
 
@@ -314,6 +361,11 @@ function HandleClientConsole(params, res)
         return
     end
 
+    if not IsPlayerConnected(playerId) then
+        SendJson(res, 400, { error = 'get_client_console: Player ' .. tostring(playerId) .. ' is not connected' })
+        return
+    end
+
     local count = params.count and tonumber(params.count)
     local since = params.since and tonumber(params.since)
     local lines = GetClientConsole(playerId, count, since)
@@ -348,15 +400,8 @@ function HandleExecClient(data, res)
         return
     end
 
-    local playerId = data.playerId
-    if not playerId then
-        local players = GetPlayers()
-        if #players == 0 then
-            SendJson(res, 400, { error = 'No players connected' })
-            return
-        end
-        playerId = tonumber(players[1])
-    end
+    local playerId = ResolvePlayer(data, res, 'exec_client')
+    if not playerId then return end
 
     ExecOnClient(playerId, data.code, function(result)
         SendJson(res, 200, result)
@@ -391,8 +436,13 @@ function HandleTriggerClientEvent(data, res)
         return
     end
 
+    if not IsPlayerConnected(playerId) then
+        SendJson(res, 400, { error = 'trigger_client_event: Player ' .. tostring(playerId) .. ' is not connected' })
+        return
+    end
+
     TriggerClientEvent(data.eventName, playerId, table.unpack(data.args or {}))
-    SendJson(res, 200, { success = true })
+    SendJson(res, 200, { success = true, note = 'Event dispatched (fire-and-forget — delivery is not confirmed)' })
 end
 
 --- POST /command — execute a server console command
@@ -465,15 +515,8 @@ function HandleClientCommand(data, res)
         return
     end
 
-    local playerId = data.playerId
-    if not playerId then
-        local players = GetPlayers()
-        if #players == 0 then
-            SendJson(res, 400, { error = 'No players connected' })
-            return
-        end
-        playerId = tonumber(players[1])
-    end
+    local playerId = ResolvePlayer(data, res, 'run_client_command')
+    if not playerId then return end
 
     -- Build Lua code that executes the command on the client
     local escaped = data.command:gsub('\\', '\\\\'):gsub("'", "\\'")
@@ -497,8 +540,13 @@ function HandleExecServerScoped(data, res)
         return
     end
 
-    if GetResourceState(data.resource) ~= 'started' then
-        SendJson(res, 400, { error = 'Resource not started: ' .. data.resource })
+    local state = GetResourceState(data.resource)
+    if state == 'missing' then
+        SendJson(res, 404, { error = 'exec_server_scoped: Resource not found: ' .. data.resource })
+        return
+    end
+    if state ~= 'started' then
+        SendJson(res, 400, { error = 'exec_server_scoped: Resource "' .. data.resource .. '" is ' .. state .. ', not started' })
         return
     end
 
@@ -521,19 +569,12 @@ function HandleExecClientScoped(data, res)
     end
 
     if GetResourceState(data.resource) ~= 'started' then
-        SendJson(res, 400, { error = 'Resource not started: ' .. data.resource })
+        SendJson(res, 400, { error = 'exec_client_scoped: Resource not started: ' .. data.resource })
         return
     end
 
-    local playerId = data.playerId
-    if not playerId then
-        local players = GetPlayers()
-        if #players == 0 then
-            SendJson(res, 400, { error = 'No players connected' })
-            return
-        end
-        playerId = tonumber(players[1])
-    end
+    local playerId = ResolvePlayer(data, res, 'exec_client_scoped')
+    if not playerId then return end
 
     ExecScopedClient(playerId, data.resource, data.code, function(result)
         SendJson(res, 200, result)
@@ -544,15 +585,8 @@ end
 ---@param data table { playerId?: integer }
 ---@param res table
 function HandleNuiState(data, res)
-    local playerId = data.playerId
-    if not playerId then
-        local players = GetPlayers()
-        if #players == 0 then
-            SendJson(res, 400, { error = 'No players connected' })
-            return
-        end
-        playerId = tonumber(players[1])
-    end
+    local playerId = ResolvePlayer(data, res, 'get_nui_state')
+    if not playerId then return end
 
     local code = [[
         local focused = IsNuiFocused()
@@ -574,15 +608,8 @@ end
 ---@param data table { playerId?: integer }
 ---@param res table
 function HandleScreenshot(data, res)
-    local playerId = data.playerId
-    if not playerId then
-        local players = GetPlayers()
-        if #players == 0 then
-            SendJson(res, 400, { error = 'No players connected' })
-            return
-        end
-        playerId = tonumber(players[1])
-    end
+    local playerId = ResolvePlayer(data, res, 'take_screenshot')
+    if not playerId then return end
 
     TakeScreenshot(playerId, function(result)
         SendJson(res, 200, result)

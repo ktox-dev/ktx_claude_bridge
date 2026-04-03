@@ -32,9 +32,13 @@ function ExecOnClient(playerId, code, resolve)
         local pending = PendingCallbacks[id]
         if pending then
             PendingCallbacks[id] = nil
+            local stillOnline = GetPlayerName(playerId) ~= nil
+            local reason = stillOnline
+                and ('Client exec timed out after %dms (player %d) — code may be blocking or waiting for user input'):format(TIMEOUT, playerId)
+                or ('Player %d disconnected during client exec'):format(playerId)
             pending.resolve({
                 success = false,
-                error = ('Client exec timed out after %dms (player %d)'):format(TIMEOUT, playerId),
+                error = reason,
             })
         end
     end)
@@ -137,9 +141,14 @@ function ExecScopedClient(playerId, resource, code, resolve)
         local pending = PendingCallbacks[id]
         if pending then
             PendingCallbacks[id] = nil
+            -- Check if player disconnected during execution
+            local stillOnline = GetPlayerName(playerId) ~= nil
+            local reason = stillOnline
+                and ('Scoped client exec timed out after %dms — does %s have shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest? (resource may need restart after adding it)'):format(TIMEOUT, resource)
+                or ('Player %d disconnected during scoped client exec'):format(playerId)
             pending.resolve({
                 success = false,
-                error = ('Scoped client exec timed out after %dms — does %s have shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest?'):format(TIMEOUT, resource),
+                error = reason,
             })
         end
     end)
