@@ -47,13 +47,16 @@ cd ktx_claude_bridge/mcp && pnpm install && pnpm run build
 Convars (set in server.cfg):
 - `set ktx_bridge_enabled true` — enable/disable the bridge
 - `set ktx_bridge_token ""` — optional auth token (empty = no auth)
-- `set ktx_bridge_client_timeout 10000` — client exec timeout in ms
+- `set ktx_bridge_client_timeout 300000` — client exec timeout in ms (generous: work runs as a job, so it no longer holds an HTTP response open)
 - `set ktx_bridge_max_console 500` — max console ring buffer lines
 
 Environment variables for MCP server:
 - `FIVEM_BRIDGE_URL` — FiveM bridge URL (default: `http://localhost:30120/ktx_claude_bridge`)
 - `FIVEM_BRIDGE_TOKEN` — Optional auth token
-- `FIVEM_BRIDGE_TIMEOUT` — HTTP request timeout in ms (default: `15000`)
+- `FIVEM_BRIDGE_TIMEOUT` — timeout for a single HTTP round-trip in ms (default: `15000`)
+- `FIVEM_BRIDGE_JOB_TIMEOUT` — how long to keep polling a job before giving up (default: `300000`)
+- `FIVEM_BRIDGE_CHUNK_THRESHOLD` — payloads longer than this are uploaded to `/chunk` first (default: `1200`)
+- `FIVEM_BRIDGE_TRANSPORT` — `get` (default) or `post`. See "Transport on Enhanced" below.
 - `FIVEM_LOG_PATH` — Path to fxserver.log (auto-detected if empty)
 - `FIVEM_CDP_PORT` — CEF DevTools Protocol port (default: `13172`)
 
@@ -83,6 +86,8 @@ MCP config for Claude Code settings:
 | GET | /entities | All entities (vehicles, peds, objects) — requires OneSync |
 | GET | /console/server | Server console (all resources via RegisterConsoleListener) |
 | GET | /console/client | Client console output |
+| GET | /chunk | Upload one piece of a long payload (`id`, `i`, `n`, `d`) |
+| GET | /job | Fetch the result of an async call (`id`) |
 | POST | /exec/server | Execute Lua server-side (bridge's VM) |
 | POST | /exec/client | Execute Lua client-side (bridge's VM) |
 | POST | /exec/server/scoped | Execute Lua in another resource's server VM |
@@ -149,6 +154,37 @@ MCP config for Claude Code settings:
 | `send_nui_message` | Send JSON to a resource's NUI JS frame (NOT Lua callbacks) |
 | `get_nui_state` | Get NUI focus/cursor state |
 | `take_screenshot` | Game screenshot via screencapture resource (returns MCP image) |
+
+## Transport on FiveM for GTAV Enhanced
+
+Two platform limits shape how the MCP client talks to the Lua side on b96.
+Both are worked around transparently — callers see a normal request/response.
+
+**1. POST bodies never arrive.** The callback given to `req.setDataHandler`
+does not fire, so the handler never answers and the server drops the
+connection after ~5s (reported upstream as
+[citizenfx/rfc#279](https://github.com/citizenfx/rfc/discussions/279)).
+The payload therefore travels as `?body=<url-encoded json>` on a GET, and the
+Lua side accepts either form.
+
+**2. Held-open responses are cut after a few seconds.** Anything slower than
+that used to fail even though the Lua ran to completion — only the answer was
+lost. Calls now run as jobs:
+
+```
+GET /exec/client?async=1&body=…   ->  202 {"job":"job_…"}
+GET /job?id=job_…                 ->  {"done":false}  … then the real result
+```
+
+The handler runs in its own thread, so the job id goes out immediately even
+when the handler blocks. Verified with a 20-second execution.
+
+**Long payloads** exceed URL length limits, so anything over
+`FIVEM_BRIDGE_CHUNK_THRESHOLD` is uploaded in pieces to `/chunk` and the call
+references it with `?chunked=<id>`. Verified with a 4.2 KB snippet in 4 pieces.
+
+When the upstream bug is fixed, set `FIVEM_BRIDGE_TRANSPORT=post` and the
+client goes back to real POSTs. Nothing on the Lua side needs to change.
 
 ## Scoped Execution
 

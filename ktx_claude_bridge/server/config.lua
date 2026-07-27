@@ -2,7 +2,10 @@ Config = {}
 
 Config.enabled = GetConvar('ktx_bridge_enabled', 'true') == 'true'
 Config.authToken = GetConvar('ktx_bridge_token', '')
-Config.clientExecTimeout = tonumber(GetConvar('ktx_bridge_client_timeout', '10000'))
+-- Grosszuegig, weil Ausfuehrungen jetzt ueber Auftragsnummern laufen und die
+-- HTTP-Verbindung nicht mehr offen halten. Der einzige Zweck dieses Wertes ist,
+-- einen haengenden Client irgendwann aufzugeben.
+Config.clientExecTimeout = tonumber(GetConvar('ktx_bridge_client_timeout', '300000'))
 Config.maxConsoleLines = tonumber(GetConvar('ktx_bridge_max_console', '500'))
 
 CreateThread(function()
