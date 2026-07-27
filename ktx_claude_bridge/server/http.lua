@@ -1,5 +1,19 @@
 local TOKEN <const> = Config.authToken
 
+--- Percent-decode a query string value.
+--- Note: `+` is deliberately NOT treated as a space. The client encodes with
+--- encodeURIComponent, which turns a literal `+` into `%2B` and a space into
+--- `%20`. Treating `+` as a space here would corrupt Lua code containing `+`.
+---@param str string?
+---@return string?
+local function urlDecode(str)
+    if not str or str == '' then return str end
+
+    return (str:gsub('%%(%x%x)', function(hex)
+        return string.char(tonumber(hex, 16))
+    end))
+end
+
 --- Parse query string parameters from a URL path.
 ---@param path string
 ---@return string cleanPath
@@ -15,7 +29,7 @@ local function parseQuery(path)
     for pair in queryStr:gmatch('[^&]+') do
         local key, value = pair:match('([^=]+)=?(.*)')
         if key then
-            params[key] = value or ''
+            params[urlDecode(key)] = urlDecode(value) or ''
         end
     end
 
@@ -84,9 +98,45 @@ SetHttpHandler(function(req, res)
         local handler = GET_ROUTES[path]
         if handler then
             handler(params, res)
-        else
-            SendJson(res, 404, { error = 'Not found: ' .. path })
+            return
         end
+
+        -- GET-Umweg fuer die POST-Routen.
+        --
+        -- Unter FiveM fuer GTAV Enhanced (b96) feuert der Rueckruf von
+        -- req.setDataHandler nicht mehr, deshalb bleibt jeder POST ohne
+        -- Antwort haengen (gemeldet als citizenfx/rfc#279). Solange das so
+        -- ist, schickt der Client die Nutzlast als ?body=<json> mit und wir
+        -- rufen denselben Handler auf. Kommt der Fehlerfix, reicht ein
+        -- Umschalten auf der Clientseite - hier muss nichts zurueckgebaut
+        -- werden.
+        --
+        -- Grenze: die Nutzlast steht in der URL. Sehr lange Lua-Schnipsel
+        -- koennen an Laengenbegrenzungen scheitern; dann ueber eine Datei
+        -- oder einen Export gehen.
+        local postHandler = POST_ROUTES[path]
+
+        if postHandler then
+            if not params.body then
+                SendJson(res, 400, {
+                    error = 'This route needs a payload. Send it as ?body=<url-encoded json>.',
+                })
+                return
+            end
+
+            local ok, data = pcall(json.decode, params.body)
+
+            if not ok or type(data) ~= 'table' then
+                local preview = #params.body > 120 and params.body:sub(1, 120) .. '...' or params.body
+                SendJson(res, 400, { error = 'Invalid JSON in body parameter: ' .. preview })
+                return
+            end
+
+            postHandler(data, res)
+            return
+        end
+
+        SendJson(res, 404, { error = 'Not found: ' .. path })
     elseif req.method == 'POST' then
         local handler = POST_ROUTES[path]
         if not handler then

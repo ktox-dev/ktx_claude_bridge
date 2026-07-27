@@ -6,12 +6,33 @@ interface BridgeResponse {
   [key: string]: unknown;
 }
 
+/**
+ * On FiveM for GTAV Enhanced (b96) the callback given to `req.setDataHandler`
+ * never fires, so every POST hangs and the connection is closed without a
+ * response (reported as citizenfx/rfc#279). While that is broken we send the
+ * payload as a query parameter on a GET instead — the Lua side accepts both.
+ *
+ * Set FIVEM_BRIDGE_TRANSPORT=post to go back to real POST requests once the
+ * upstream bug is fixed. Nothing else needs to change.
+ */
+const USE_GET_FALLBACK = (process.env.FIVEM_BRIDGE_TRANSPORT ?? 'get') !== 'post';
+
 export async function request(
   method: 'GET' | 'POST',
   path: string,
   body?: Record<string, unknown>,
 ): Promise<BridgeResponse> {
-  const url = `${config.bridgeUrl}${path}`;
+  let effectiveMethod = method;
+  let url = `${config.bridgeUrl}${path}`;
+  let payload: string | undefined = body ? JSON.stringify(body) : undefined;
+
+  if (method === 'POST' && USE_GET_FALLBACK) {
+    effectiveMethod = 'GET';
+    const separator = path.includes('?') ? '&' : '?';
+    url = `${config.bridgeUrl}${path}${separator}body=${encodeURIComponent(payload ?? '{}')}`;
+    payload = undefined;
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -23,9 +44,9 @@ export async function request(
   let res: Response;
   try {
     res = await fetch(url, {
-      method,
+      method: effectiveMethod,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: payload,
       signal: AbortSignal.timeout(config.timeout),
     });
   } catch (err) {
