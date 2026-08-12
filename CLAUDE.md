@@ -186,6 +186,12 @@ references it with `?chunked=<id>`. Verified with a 4.2 KB snippet in 4 pieces.
 When the upstream bug is fixed, set `FIVEM_BRIDGE_TRANSPORT=post` and the
 client goes back to real POSTs. Nothing on the Lua side needs to change.
 
+**Fixed as of the August 11 patch (server b118).** Measured on 2026-08-13: a
+`POST` with body `hallo=welt&zahl=42` reached `req.setDataHandler` and the
+handler answered normally. The `project_rp` MCP entry now sets
+`FIVEM_BRIDGE_TRANSPORT=post`. The GET path, `/chunk` and `?chunked=` stay in
+place for servers still on an older build.
+
 ## Scoped Execution
 
 `exec_server_lua` / `exec_client_lua` run in the bridge's own Lua VM. You can call exports but CANNOT access other resources' globals/locals.
