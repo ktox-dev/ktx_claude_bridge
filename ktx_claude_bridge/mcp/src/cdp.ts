@@ -50,6 +50,7 @@ export class CDPClient {
     const targets = (await res.json()) as Array<{
       id: string;
       type: string;
+      url?: string;
       webSocketDebuggerUrl?: string;
     }>;
     // **Die Wurzel-Oberflaeche, nicht das erste beste Ziel.**

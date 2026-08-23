@@ -5,4 +5,4 @@ package-lock.json
 .env.*
 *.log
 .claude
-__profiler_*.json
+__profiler_*.jsonprobe/

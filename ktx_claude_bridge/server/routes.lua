@@ -613,7 +613,7 @@ function HandleScreenshot(data, res)
 
     TakeScreenshot(playerId, function(result)
         SendJson(res, 200, result)
-    end)
+    end, { encoding = data.encoding, quality = data.quality })
 end
 
 --- POST /resource/file/read — read a file from any resource

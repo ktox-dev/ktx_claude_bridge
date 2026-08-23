@@ -17,7 +17,42 @@ interface BridgeResponse {
  */
 const USE_GET_FALLBACK = (process.env.FIVEM_BRIDGE_TRANSPORT ?? 'get') !== 'post';
 
-/** One plain HTTP round-trip. No retries, no job handling. */
+/** How often a dropped connection is retried before we give up. */
+const TRANSPORT_ATTEMPTS = Math.max(1, Number(process.env.FIVEM_BRIDGE_ATTEMPTS ?? 4));
+
+/**
+ * Did the connection die underneath us, or did the request genuinely fail?
+ *
+ * Only the first kind is worth repeating. A timeout we asked for ourselves and
+ * a real HTTP status are answers, not accidents — repeating those would hide
+ * problems instead of surviving them.
+ */
+function isTransportDrop(err: unknown): boolean {
+  const e = err as { name?: string; message?: string; cause?: { code?: string } };
+
+  if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return false;
+
+  const code = e?.cause?.code ?? '';
+  if (code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'UND_ERR_SOCKET' || code === 'EPIPE') {
+    return true;
+  }
+
+  return (e?.message ?? '').includes('fetch failed');
+}
+
+/**
+ * One HTTP round-trip, repeating a dropped connection.
+ *
+ * FXServer on Enhanced throws fresh TCP connections away. Measured on b118 with
+ * the server up for 13 hours: ten calls back to back land five times, ten calls
+ * two seconds apart land ZERO times, ten calls over one kept-alive connection
+ * land eight times. The same rate hits `/info.json`, which no resource owns —
+ * so this is the platform, not this bridge.
+ *
+ * The counter-intuitive part is that spacing calls out makes it worse, not
+ * better. Waiting is therefore exactly the wrong reflex; the fix is to try
+ * again straight away. Four attempts turn a coin flip into a near-certainty.
+ */
 async function raw(method: 'GET' | 'POST', url: string, body?: string): Promise<Response> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
@@ -25,12 +60,28 @@ async function raw(method: 'GET' | 'POST', url: string, body?: string): Promise<
     headers['Authorization'] = `Bearer ${config.token}`;
   }
 
-  return fetch(url, {
-    method,
-    headers,
-    body,
-    signal: AbortSignal.timeout(config.timeout),
-  });
+  let last: unknown;
+
+  for (let attempt = 1; attempt <= TRANSPORT_ATTEMPTS; attempt++) {
+    try {
+      return await fetch(url, {
+        method,
+        headers,
+        body,
+        signal: AbortSignal.timeout(config.timeout),
+      });
+    } catch (err) {
+      last = err;
+
+      if (!isTransportDrop(err) || attempt === TRANSPORT_ATTEMPTS) break;
+
+      // KEINE Pause. Gemessen im degradierten Zustand, je sechs Durchgaenge:
+      // ohne Pause 4/6, mit 20 ms 0/6, mit 50 ms 0/6, mit 400 ms 0/6. Warten
+      // ist hier nicht die vorsichtige Variante, sondern die kaputte.
+    }
+  }
+
+  throw last;
 }
 
 function parseOrThrow(text: string, what: string, status: number): BridgeResponse {
@@ -51,7 +102,10 @@ function describe(err: unknown, method: string, path: string): Error {
   }
 
   return new Error(
-    `Bridge unreachable (${method} ${path}): ${msg}. Is the FiveM server running with ktx_claude_bridge started?`,
+    `Bridge unreachable (${method} ${path}) after ${TRANSPORT_ATTEMPTS} attempts: ${msg}. ` +
+      `The connection was dropped every time. Check whether the FiveM server runs with ` +
+      `ktx_claude_bridge started — but verify before believing it: curl the endpoint directly, ` +
+      `since the platform drops fresh connections on its own.`,
   );
 }
 

@@ -45,9 +45,17 @@ function ExecOnClient(playerId, code, resolve)
 end
 
 --- Take a screenshot via screencapture server export.
+---
+--- `quality` und `encoding` gehen unveraendert an die Aufnahme durch. Das ist
+--- kein Schoenheitsdetail: der HTTP-Stack wirft unter Last Verbindungen weg,
+--- und je groesser die Antwort, desto haeufiger trifft es sie. Eine Bildfolge
+--- fuer ein Video war mit voller Qualitaet nicht aufzunehmen -- zwei von zehn
+--- Bildern kamen an. Wer eine Serie braucht, dreht die Qualitaet herunter;
+--- fuer ein einzelnes Kontrollbild bleibt die Vorgabe.
 ---@param playerId integer
 ---@param resolve fun(result: table)
-function TakeScreenshot(playerId, resolve)
+---@param optionen table|nil { encoding?: string, quality?: number }
+function TakeScreenshot(playerId, resolve, optionen)
     if GetResourceState('screencapture') ~= 'started' then
         resolve({ success = false, error = 'screencapture resource is not running. Install from: https://github.com/itschip/screencapture' })
         return
@@ -56,12 +64,17 @@ function TakeScreenshot(playerId, resolve)
     local id = generateId()
     PendingCallbacks[id] = { resolve = resolve, source = playerId }
 
+    optionen = optionen or {}
+    local encoding = optionen.encoding or 'webp'
+    local aufnahme = { encoding = encoding }
+    if optionen.quality then aufnahme.quality = optionen.quality end
+
     -- Use server-side export — no client relay needed
-    exports.screencapture:serverCapture(playerId, { encoding = 'webp' }, function(data)
+    exports.screencapture:serverCapture(playerId, aufnahme, function(data)
         local pending = PendingCallbacks[id]
         if pending then
             PendingCallbacks[id] = nil
-            pending.resolve({ success = true, data = data, encoding = 'webp' })
+            pending.resolve({ success = true, data = data, encoding = encoding })
         end
     end, 'base64')
 
