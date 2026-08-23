@@ -46,16 +46,15 @@ end
 
 --- Take a screenshot via screencapture server export.
 ---
---- `quality` und `encoding` gehen unveraendert an die Aufnahme durch. Das ist
---- kein Schoenheitsdetail: der HTTP-Stack wirft unter Last Verbindungen weg,
---- und je groesser die Antwort, desto haeufiger trifft es sie. Eine Bildfolge
---- fuer ein Video war mit voller Qualitaet nicht aufzunehmen -- zwei von zehn
---- Bildern kamen an. Wer eine Serie braucht, dreht die Qualitaet herunter;
---- fuer ein einzelnes Kontrollbild bleibt die Vorgabe.
+--- `quality` and `encoding` pass through to the capture untouched. That is
+--- not cosmetic: the HTTP stack drops connections under load, and the larger
+--- the response, the more often it is hit. A frame series for a video could
+--- not be captured at full quality, two of ten arrived. Whoever needs a series
+--- turns the quality down; a single check frame keeps the default.
 ---@param playerId integer
 ---@param resolve fun(result: table)
----@param optionen table|nil { encoding?: string, quality?: number }
-function TakeScreenshot(playerId, resolve, optionen)
+---@param options table|nil { encoding?: string, quality?: number }
+function TakeScreenshot(playerId, resolve, options)
     if GetResourceState('screencapture') ~= 'started' then
         resolve({ success = false, error = 'screencapture resource is not running. Install from: https://github.com/itschip/screencapture' })
         return
@@ -64,13 +63,13 @@ function TakeScreenshot(playerId, resolve, optionen)
     local id = generateId()
     PendingCallbacks[id] = { resolve = resolve, source = playerId }
 
-    optionen = optionen or {}
-    local encoding = optionen.encoding or 'webp'
-    local aufnahme = { encoding = encoding }
-    if optionen.quality then aufnahme.quality = optionen.quality end
+    options = options or {}
+    local encoding = options.encoding or 'webp'
+    local capture = { encoding = encoding }
+    if options.quality then capture.quality = options.quality end
 
     -- Use server-side export — no client relay needed
-    exports.screencapture:serverCapture(playerId, aufnahme, function(data)
+    exports.screencapture:serverCapture(playerId, capture, function(data)
         local pending = PendingCallbacks[id]
         if pending then
             PendingCallbacks[id] = nil

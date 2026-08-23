@@ -75,9 +75,9 @@ async function raw(method: 'GET' | 'POST', url: string, body?: string): Promise<
 
       if (!isTransportDrop(err) || attempt === TRANSPORT_ATTEMPTS) break;
 
-      // KEINE Pause. Gemessen im degradierten Zustand, je sechs Durchgaenge:
-      // ohne Pause 4/6, mit 20 ms 0/6, mit 50 ms 0/6, mit 400 ms 0/6. Warten
-      // ist hier nicht die vorsichtige Variante, sondern die kaputte.
+      // NO pause. Measured in the degraded state, six runs each: no pause
+      // 4/6, 20 ms 0/6, 50 ms 0/6, 400 ms 0/6. Waiting is not the careful
+      // option here, it is the broken one.
     }
   }
 

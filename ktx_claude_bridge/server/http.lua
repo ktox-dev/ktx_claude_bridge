@@ -36,53 +36,52 @@ local function parseQuery(path)
     return cleanPath, params
 end
 
---- Die Gegenstelle ohne Port.
---- FiveM reicht sie als "127.0.0.1:54321" durch, ueber IPv6 als
---- "[::1]:54321". Ein blosses find nach "::1" wuerde auch 2001:db8::1234
---- treffen, deshalb wird der Wirt sauber herausgeloest.
----@param adresse string
+--- The peer address without its port.
+--- FiveM hands it over as "127.0.0.1:54321", over IPv6 as "[::1]:54321".
+--- A plain find for "::1" would also match 2001:db8::1234, so the host is
+--- pulled out properly.
+---@param address string
 ---@return string
-local function hostVon(adresse)
-    if adresse:sub(1, 1) == '[' then
-        return adresse:match('^%[([^%]]+)%]') or ''
+local function hostOf(address)
+    if address:sub(1, 1) == '[' then
+        return address:match('^%[([^%]]+)%]') or ''
     end
-    local _, doppelpunkte = adresse:gsub(':', '')
-    if doppelpunkte <= 1 then
-        return adresse:match('^([^:]+)') or ''
+    local _, colons = address:gsub(':', '')
+    if colons <= 1 then
+        return address:match('^([^:]+)') or ''
     end
-    return adresse
+    return address
 end
 
---- Kommt die Anfrage vom selben Rechner?
+--- Did this request come from the machine the server runs on?
 ---@param req table
 ---@return boolean
-local function istOertlich(req)
-    local host = hostVon(req.address or '')
+local function isLocal(req)
+    local host = hostOf(req.address or '')
     return host == '::1' or host == 'localhost' or host == '::ffff:127.0.0.1'
         or host:match('^127%.%d+%.%d+%.%d+$') ~= nil
 end
 
---- Wer durchgelassen wird.
+--- Who gets through.
 ---
---- Der Handler haengt an SetHttpHandler, also am oeffentlichen Port des
---- Servers, und dahinter liegen /exec/server, /db/query und
---- /resource/file/write. Ein leerer Token liess frueher jede Anfrage durch:
---- wer die Adresse kannte, hatte den Server. Ein Werkzeug soll sich aber
---- nicht erst einrichten lassen muessen, deshalb gilt jetzt: mit Token zaehlt
---- der Token, ohne Token nur der eigene Rechner.
+--- The handler hangs off SetHttpHandler, which is the server's public HTTP
+--- port, and behind it sit /exec/server, /db/query and /resource/file/write.
+--- An empty token used to let every request through: whoever knew the address
+--- had the server. A development tool should still work without being set up
+--- first, so the rule is now: with a token the token counts, without one only
+--- this machine does.
 ---
---- Der Kopf wird in beiden Schreibweisen gesucht, der Client schickt ihn
---- gross.
+--- The header is read in both spellings, the client sends it capitalised.
 ---@param req table
 ---@return boolean
 local function checkAuth(req)
     if TOKEN ~= '' then
-        local koepfe = req.headers
-        local auth = koepfe and (koepfe['authorization'] or koepfe['Authorization'])
+        local headers = req.headers
+        local auth = headers and (headers['authorization'] or headers['Authorization'])
         return auth == 'Bearer ' .. TOKEN
     end
 
-    return istOertlich(req)
+    return isLocal(req)
 end
 
 -- GET route table
@@ -119,16 +118,16 @@ local POST_ROUTES <const> = {
 }
 
 -- ===========================================================================
--- Auftraege (jobs) — gegen die Zeitgrenze des Servers
+-- Jobs, against the server's time limit
 --
--- FiveM schliesst eine offen gehaltene HTTP-Antwort nach wenigen Sekunden.
--- Alles, was laenger dauert (Client-Lua mit Wait, Messreihen, Screenshots),
--- lief deshalb ins Leere, obwohl der Code auf dem Client sauber durchlief.
+-- FiveM closes an HTTP response that is held open after a few seconds.
+-- Anything slower than that (client Lua with Wait, measurement runs,
+-- screenshots) ran into nothing, even though the code on the client finished
+-- cleanly.
 --
--- Loesung: Der Aufruf legt einen Auftrag an und antwortet SOFORT mit dessen
--- Nummer. Das Ergebnis wird spaeter unter /job?id=<nr> abgeholt. Damit ist die
--- Laufzeit einer Ausfuehrung von der Lebensdauer einer HTTP-Verbindung
--- entkoppelt.
+-- So a call now creates a job and answers with its id IMMEDIATELY. The result
+-- is picked up later from /job?id=<id>. That decouples how long the work takes
+-- from how long a connection lives.
 -- ===========================================================================
 local Jobs = {}
 local nextJob = 0
@@ -140,7 +139,7 @@ local function newJob()
     return id
 end
 
---- Ein Antwort-Objekt, das statt zu senden in den Auftrag schreibt.
+--- A response object that writes into the job instead of sending.
 ---@param id string
 ---@return table
 local function jobRes(id)
@@ -157,7 +156,7 @@ local function jobRes(id)
     }
 end
 
--- Alte Auftraege wegraeumen, damit die Tabelle nicht waechst.
+-- Clear out old jobs so the table does not grow forever.
 CreateThread(function()
     while true do
         Wait(60000)
@@ -169,12 +168,12 @@ CreateThread(function()
 end)
 
 -- ===========================================================================
--- Stueckweise Uebertragung — gegen die Laengengrenze der URL
+-- Chunked upload, against the length limit of a URL
 --
--- Die Nutzlast reist als Query-Parameter, weil POST-Bodies unter b96 nicht
--- ankommen. Lange Lua-Schnipsel sprengen damit die URL. Der Client zerlegt
--- sie deshalb und schickt die Teile nacheinander an /chunk; der eigentliche
--- Aufruf verweist dann nur noch per ?chunked=<id> darauf.
+-- The payload travels as a query parameter because POST bodies do not arrive
+-- under b96. Long pieces of Lua blow past what a URL holds. The client splits
+-- them and sends the pieces to /chunk one after another; the actual call then
+-- only points at them with ?chunked=<id>.
 -- ===========================================================================
 local Chunks = {}
 
@@ -212,7 +211,7 @@ local function handleChunk(params, res)
     SendJson(res, 200, { success = true, received = have, total = total })
 end
 
---- Zusammengesetzte Nutzlast holen und den Zwischenspeicher freigeben.
+--- Take the assembled payload and free the buffer.
 ---@param id string
 ---@return string?
 local function takeChunked(id)
@@ -263,8 +262,8 @@ SetHttpHandler(function(req, res)
                 return
             end
 
-            -- Der Auftragskoerper ist bereits fertiges JSON. Damit die
-            -- Clientseite nicht doppelt auspacken muss, geht er roh raus.
+            -- The job body is finished JSON already. It goes out raw so
+            -- the client side does not have to unwrap it twice.
             res.writeHead(200, { ['Content-Type'] = 'application/json' })
             res.send(job.body or '{"error":"empty job body"}')
             Jobs[params.id] = nil
@@ -277,19 +276,17 @@ SetHttpHandler(function(req, res)
             return
         end
 
-        -- GET-Umweg fuer die POST-Routen.
+        -- The GET detour for the POST routes.
         --
-        -- Unter FiveM fuer GTAV Enhanced (b96) feuert der Rueckruf von
-        -- req.setDataHandler nicht mehr, deshalb bleibt jeder POST ohne
-        -- Antwort haengen (gemeldet als citizenfx/rfc#279). Solange das so
-        -- ist, schickt der Client die Nutzlast als ?body=<json> mit und wir
-        -- rufen denselben Handler auf. Kommt der Fehlerfix, reicht ein
-        -- Umschalten auf der Clientseite - hier muss nichts zurueckgebaut
-        -- werden.
+        -- On FiveM for GTAV Enhanced (b96) the callback of req.setDataHandler
+        -- does not fire any more, so every POST hangs without an answer
+        -- (reported as citizenfx/rfc#279). While that lasts the client sends
+        -- the payload as ?body=<json> and we call the same handler. Once it is
+        -- fixed, switching back is a change on the client side only, nothing
+        -- here has to be undone.
         --
-        -- Grenze: die Nutzlast steht in der URL. Sehr lange Lua-Schnipsel
-        -- koennen an Laengenbegrenzungen scheitern; dann ueber eine Datei
-        -- oder einen Export gehen.
+        -- The limit: the payload sits in the URL. Very long pieces of Lua can
+        -- run into length limits, and then a file or an export is the way.
         local postHandler = POST_ROUTES[path]
 
         if postHandler then
@@ -323,16 +320,16 @@ SetHttpHandler(function(req, res)
                 return
             end
 
-            -- Auftragsbetrieb: sofort die Nummer zurueckgeben, Ergebnis spaeter
-            -- unter /job abholen. Das entkoppelt die Laufzeit von der
-            -- Lebensdauer der HTTP-Verbindung.
+            -- Job mode: answer with the id at once, pick the result up
+            -- from /job later. This decouples how long the work takes from
+            -- how long the connection lives.
             if params.async == '1' then
                 local id = newJob()
 
-                -- In einem EIGENEN Thread ausfuehren. Laeuft der Handler
-                -- synchron (Server-Lua mit Wait), wuerde er sonst genau die
-                -- Antwort blockieren, die dem Aufrufer die Nummer mitteilt —
-                -- und wir haetten nichts gewonnen.
+                -- Run it in a thread of its OWN. If the handler runs
+                -- synchronously (server Lua with Wait) it would otherwise
+                -- block the very response that tells the caller the id, and
+                -- nothing would be gained.
                 CreateThread(function()
                     local ok, err = pcall(postHandler, data, jobRes(id))
 

@@ -2,9 +2,9 @@ Config = {}
 
 Config.enabled = GetConvar('ktx_bridge_enabled', 'true') == 'true'
 Config.authToken = GetConvar('ktx_bridge_token', '')
--- Grosszuegig, weil Ausfuehrungen jetzt ueber Auftragsnummern laufen und die
--- HTTP-Verbindung nicht mehr offen halten. Der einzige Zweck dieses Wertes ist,
--- einen haengenden Client irgendwann aufzugeben.
+-- Generous, because calls run as jobs now and no longer hold a connection
+-- open. The only purpose left for this value is to give up on a client that
+-- hangs.
 Config.clientExecTimeout = tonumber(GetConvar('ktx_bridge_client_timeout', '300000'))
 Config.maxConsoleLines = tonumber(GetConvar('ktx_bridge_max_console', '500'))
 

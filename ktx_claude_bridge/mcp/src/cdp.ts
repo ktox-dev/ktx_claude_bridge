@@ -53,19 +53,18 @@ export class CDPClient {
       url?: string;
       webSocketDebuggerUrl?: string;
     }>;
-    // **Die Wurzel-Oberflaeche, nicht das erste beste Ziel.**
+    // **The root UI, not the first target that comes along.**
     //
-    // FiveM meldet mehrere CDP-Ziele vom Typ `page`. Jede DUI-Ressource
-    // (z.B. interactiondui) bringt ein eigenes mit, und die stehen je nach
-    // Startreihenfolge VOR der Hauptseite. Wer blind das erste nimmt, landet
-    // in einer DUI -- und sieht dort keine einzige der normalen
-    // `ui_page`-Oberflaechen, weil die alle als Rahmen in `nui://ui/root.html`
-    // haengen.
+    // FiveM reports several CDP targets of type `page`. Every DUI resource
+    // (interactiondui, for one) brings its own, and depending on start order
+    // they sit BEFORE the main page. Take the first one blindly and you land
+    // in a DUI, where not a single ordinary `ui_page` is visible, because
+    // those all hang as frames inside `nui://ui/root.html`.
     //
-    // Genau daran sind am 2026-07-30 alle NUI-Werkzeuge gescheitert:
-    // `nui_list_frames` meldete nur `interactiondui`, ein Screenshot der
-    // NUI-Schicht kam leer zurueck, und `ktx_hud` war ueber den Debugger gar
-    // nicht erreichbar -- obwohl es sichtbar lief.
+    // This is what broke every NUI tool on 2026-07-30: `nui_list_frames`
+    // reported `interactiondui` and nothing else, a screenshot of the NUI
+    // layer came back empty, and `ktx_hud` could not be reached through the
+    // debugger at all, while it was plainly running on screen.
     const page =
       targets.find((t) => t.type === 'page' && t.url?.startsWith('nui://ui/')) ??
       targets.find((t) => t.type === 'page');
