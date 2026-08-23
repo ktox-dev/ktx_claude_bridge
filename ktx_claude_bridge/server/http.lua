@@ -36,16 +36,53 @@ local function parseQuery(path)
     return cleanPath, params
 end
 
---- Check auth token if configured.
+--- Die Gegenstelle ohne Port.
+--- FiveM reicht sie als "127.0.0.1:54321" durch, ueber IPv6 als
+--- "[::1]:54321". Ein blosses find nach "::1" wuerde auch 2001:db8::1234
+--- treffen, deshalb wird der Wirt sauber herausgeloest.
+---@param adresse string
+---@return string
+local function hostVon(adresse)
+    if adresse:sub(1, 1) == '[' then
+        return adresse:match('^%[([^%]]+)%]') or ''
+    end
+    local _, doppelpunkte = adresse:gsub(':', '')
+    if doppelpunkte <= 1 then
+        return adresse:match('^([^:]+)') or ''
+    end
+    return adresse
+end
+
+--- Kommt die Anfrage vom selben Rechner?
+---@param req table
+---@return boolean
+local function istOertlich(req)
+    local host = hostVon(req.address or '')
+    return host == '::1' or host == 'localhost' or host == '::ffff:127.0.0.1'
+        or host:match('^127%.%d+%.%d+%.%d+$') ~= nil
+end
+
+--- Wer durchgelassen wird.
+---
+--- Der Handler haengt an SetHttpHandler, also am oeffentlichen Port des
+--- Servers, und dahinter liegen /exec/server, /db/query und
+--- /resource/file/write. Ein leerer Token liess frueher jede Anfrage durch:
+--- wer die Adresse kannte, hatte den Server. Ein Werkzeug soll sich aber
+--- nicht erst einrichten lassen muessen, deshalb gilt jetzt: mit Token zaehlt
+--- der Token, ohne Token nur der eigene Rechner.
+---
+--- Der Kopf wird in beiden Schreibweisen gesucht, der Client schickt ihn
+--- gross.
 ---@param req table
 ---@return boolean
 local function checkAuth(req)
-    if TOKEN == '' then return true end
+    if TOKEN ~= '' then
+        local koepfe = req.headers
+        local auth = koepfe and (koepfe['authorization'] or koepfe['Authorization'])
+        return auth == 'Bearer ' .. TOKEN
+    end
 
-    local auth = req.headers and req.headers['authorization']
-    if not auth then return false end
-
-    return auth == 'Bearer ' .. TOKEN
+    return istOertlich(req)
 end
 
 -- GET route table

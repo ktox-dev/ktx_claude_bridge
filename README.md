@@ -231,11 +231,23 @@ Client-targeting calls follow a relay pattern: HTTP → server stores a callback
 
 ## Security
 
-- HTTP endpoint is localhost-only by default (FiveM's `SetHttpHandler` binds to the server's HTTP listener)
-- Set `ktx_bridge_token` for a Bearer token check if you expose the port
-- Scoped server-side events use local events (no `RegisterNetEvent`), so clients cannot trigger scoped exec
+**The HTTP endpoint is not localhost-only.** `SetHttpHandler` hangs off the
+server's own HTTP listener, so these routes answer wherever the server answers,
+including from the internet. Behind them sit `/exec/server`, `/db/query` and
+`/resource/file/write`. Earlier versions of this file claimed otherwise, and an
+empty `ktx_bridge_token` let every request through: anyone who knew the address
+had the server and its database.
+
+- **No token set:** only requests from the machine the server runs on are
+  answered. Everything else gets `401`. This is the default and needs no setup.
+- **`ktx_bridge_token` set:** every request needs
+  `Authorization: Bearer <token>`, and the bridge can then be reached from
+  another machine. Give the MCP server the same value as `FIVEM_BRIDGE_TOKEN`.
+- Scoped server-side events use local events (no `RegisterNetEvent`), so clients
+  cannot trigger scoped exec
 - CDP connection is localhost only (port 13172)
-- This tool lets the model run arbitrary Lua and JavaScript — do not enable on production
+- This tool lets the model run arbitrary Lua and JavaScript. Do not run it on a
+  production or public server.
 
 ## License
 
