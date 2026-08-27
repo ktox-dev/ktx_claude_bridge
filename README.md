@@ -32,7 +32,7 @@ ktx_claude_bridge/              <- repo root
 │           ├── index.ts        <- MCP server entrypoint
 │           ├── config.ts       <- environment config
 │           ├── http.ts         <- HTTP wrapper for the FiveM bridge
-│           ├── tools.ts        <- Lua/HTTP-based MCP tools (27)
+│           ├── tools.ts        <- Lua/HTTP-based MCP tools (30)
 │           ├── cdp.ts          <- Chrome DevTools Protocol WebSocket client
 │           └── cdp-tools.ts    <- CDP-based NUI MCP tools (10)
 ├── ktx_bridge_helper/          <- helper resource (DO NOT RESTART)
@@ -138,9 +138,47 @@ Environment variables for the MCP server:
 | `FIVEM_BRIDGE_TOKEN` | (empty) | Optional auth token |
 | `FIVEM_BRIDGE_TIMEOUT` | `15000` | HTTP request timeout (ms) |
 | `FIVEM_LOG_PATH` | (auto-detect) | Path to `fxserver.log` |
+| `FIVEM_CLIENT_LOG_PATH` | (auto-detect) | Path to the client log, or the folder holding them |
 | `FIVEM_CDP_PORT` | `13172` | CEF DevTools Protocol port |
+| `FIVEM_SERVERS` | (unset) | Several servers at once, as JSON. Replaces the five above |
+| `FIVEM_SERVER_DEFAULT` | first entry | Which of them is active at startup |
 
-## Available Tools (37)
+### More than one server
+
+One MCP entry can hold every server you develop against. `FIVEM_SERVERS` is a
+JSON object of name to settings, and each entry takes the same values as the
+single-server variables:
+
+```json
+{
+  "mcpServers": {
+    "fivem": {
+      "command": "node",
+      "args": ["<path>/ktx_claude_bridge/ktx_claude_bridge/mcp/dist/index.js"],
+      "env": {
+        "FIVEM_SERVERS": "{\"qbox\":{\"url\":\"http://localhost:30120/ktx_claude_bridge\"},\"test\":{\"url\":\"http://localhost:27007/ktx_claude_bridge\"}}",
+        "FIVEM_SERVER_DEFAULT": "qbox"
+      }
+    }
+  }
+}
+```
+
+`list_servers` shows them, `use_server` switches, and the choice holds until it
+is changed again. Two entries may name the same URL — servers that take turns
+on one port. `list_servers` says so, because in that case the name does not
+tell you which one answered and only `get_server_info`'s hostname does.
+
+One entry per server also works and needs none of this. It just means several
+MCP servers, and nothing stops two of them pointing at the same place.
+
+## Available Tools (40)
+
+### Servers
+| Tool | Description |
+|------|-------------|
+| `list_servers` | The configured FiveM servers and which one is active |
+| `use_server` | Point every following call at another server |
 
 ### Lua Execution
 | Tool | Description |
@@ -185,10 +223,24 @@ Environment variables for the MCP server:
 ### Console & Logs
 | Tool | Description |
 |------|-------------|
-| `get_server_console` | Recent server console output with per-line `resource` attribution |
-| `get_client_console` | Client-side console for a specific player |
+| `get_server_console` | Recent server console output with per-line `resource` attribution. `RegisterConsoleListener`, so errors are in it, capped at 1000 lines |
+| `get_client_console` | Only what ran through `exec_client_lua` printed. No errors, no other resource's prints |
 | `read_server_log` | Full txAdmin `fxserver.log` with tail/search |
+| `read_client_log` | The client's own `CitizenFX_log_*.log`: SCRIPT ERRORs, downloads, mounts, CEF |
 | `watch_console` | Poll the server console for new output over a duration |
+
+Which one answers your question depends on side and completeness:
+
+|  | Server | Client |
+|---|---|---|
+| Complete, from disk | `read_server_log` | `read_client_log` |
+| Recent, from memory | `get_server_console` | `get_client_console` |
+
+The client pair is not symmetrical with the server pair. `get_server_console`
+sees everything the console printed; `get_client_console` sees only the output
+of code this bridge ran, because it overrides `print` in its own Lua state and
+every resource has its own. A resource that fails on the client leaves nothing
+in it. That is what `read_client_log` is for.
 
 ### Events, Commands & Resources
 | Tool | Description |

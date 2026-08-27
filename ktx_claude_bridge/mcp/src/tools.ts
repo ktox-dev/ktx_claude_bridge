@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readFile, stat } from 'node:fs/promises';
 import { request } from './http.js';
-import { config } from './config.js';
+import { config, activeServer, listServers, useServer } from './config.js';
 
 function text(content: string) {
   return { content: [{ type: 'text' as const, text: content }] };
@@ -13,6 +13,58 @@ function jsonText(data: unknown) {
 }
 
 export function registerTools(server: McpServer) {
+  // ── Server selection ─────────────────────────────────────
+
+  server.registerTool(
+    'list_servers',
+    {
+      description:
+        'List the FiveM servers this bridge is configured for and show which one every other tool currently talks to. Worth a look before you trust an answer: two entries can point at the same URL, and then the name tells you nothing about which server replied.',
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const alle = listServers();
+
+      // Two names on one URL is the situation this tool exists for. Only one
+      // FiveM server can hold a port, so the name says nothing about which one
+      // answered — get_server_info's hostname does.
+      const proUrl = new Map<string, string[]>();
+      for (const s of alle) proUrl.set(s.url, [...(proUrl.get(s.url) ?? []), s.name]);
+      const doppelt = [...proUrl.entries()].filter(([, n]) => n.length > 1);
+
+      return jsonText({
+        active: activeServer().name,
+        servers: alle.map(s => ({
+          name: s.name, url: s.url, transport: s.transport, active: s.active,
+        })),
+        ...(doppelt.length > 0 && {
+          warning: doppelt.map(([url, namen]) =>
+            `${namen.join(' and ')} share ${url}, so only one of them can be running. ` +
+            'Check get_server_info for the hostname to see which one answered.'),
+        }),
+      });
+    },
+  );
+
+  server.registerTool(
+    'use_server',
+    {
+      description:
+        'Point every following tool call at a different FiveM server. Names come from list_servers. The choice holds until it is changed again, so say which server you are on when reporting a result.',
+      inputSchema: z.object({
+        name: z.string().describe('Server name from list_servers'),
+      }),
+    },
+    async ({ name }) => {
+      try {
+        const s = useServer(name);
+        return jsonText({ success: true, active: s.name, url: s.url });
+      } catch (err) {
+        return jsonText({ success: false, error: String(err instanceof Error ? err.message : err) });
+      }
+    },
+  );
+
   // ── GET tools ────────────────────────────────────────────
 
   server.registerTool(
@@ -165,7 +217,7 @@ export function registerTools(server: McpServer) {
     'get_server_console',
     {
       description:
-        'Get recent server console output (print statements, resource start/stop events, exec errors). Use after restarting a resource to check for errors. Each line has a "resource" field (e.g. "script:ktx_garages", "citizen-server-impl") — use this to mentally filter for the resource you care about. Note: output can be noisy with hitch warnings and server list errors from "citizen-server-impl" — ignore those.',
+        'Get recent server console output. Captured with RegisterConsoleListener, so it holds EVERYTHING the server console printed, script errors included, from every resource. Two limits: it is a 1000-line ring buffer, and it starts when ktx_bridge_helper starts, so anything older is gone — read_server_log has the full history from boot. Each line has a "resource" field (e.g. "script:ktx_garages", "citizen-server-impl") to filter on. Hitch warnings and server-list errors from "citizen-server-impl" are noise. This is the SERVER only: a resource that fails on the client leaves nothing here, see read_client_log.',
       inputSchema: z.object({
         count: z.coerce.number().optional().describe('Max lines to return'),
         since: z.coerce.number().optional().describe('Unix timestamp (seconds) — only return lines after this time. Use exec_server_lua with "return os.time()" to get the current server timestamp.'),
@@ -184,7 +236,7 @@ export function registerTools(server: McpServer) {
     'get_client_console',
     {
       description:
-        'Get recent client-side console output for a specific player (print statements, exec results/errors).',
+        'Get what THIS BRIDGE printed on a player\'s client. Narrow on purpose, and the limits decide whether it answers your question at all: the relay overrides print() inside the bridge\'s own Lua VM, and every resource in FiveM has its own VM. So it carries the output of code you ran through exec_client_lua, and nothing else. It does NOT carry other resources\' print() calls, SCRIPT ERRORs, resource download or mount lines, or NUI/CEF errors. A client-side failure is invisible here. For any of that use read_client_log, which reads the file the game client writes itself.',
       inputSchema: z.object({
         playerId: z.coerce.number().describe('Player server ID'),
         count: z.coerce.number().optional().describe('Max lines to return'),
@@ -426,7 +478,7 @@ export function registerTools(server: McpServer) {
     'read_server_log',
     {
       description:
-        'Read the full FiveM server log file (fxserver.log from txAdmin). Contains ALL console output since server start including early boot messages. Use "tail" param to get last N lines, or "search" to grep for a pattern. Much more complete than get_server_console.',
+        'Read the full FiveM SERVER log file (fxserver.log, written by txAdmin). Everything the server console printed since boot, uncapped, so it holds the early startup lines that get_server_console\'s ring buffer has already dropped. Use "tail" for the last N lines or "search" to grep. Needs txAdmin: a server started without it writes no such file. Server side only, the client\'s own log is read_client_log.',
       inputSchema: z.object({
         tail: z.coerce.number().optional().describe('Return last N lines (default: 100)'),
         search: z.string().optional().describe('Filter lines containing this text (case-insensitive)'),
@@ -434,7 +486,7 @@ export function registerTools(server: McpServer) {
       }),
     },
     async ({ tail = 100, search, logPath }) => {
-      const candidates = [logPath, config.logPath].filter(Boolean) as string[];
+      const candidates = [logPath, activeServer().logPath].filter(Boolean) as string[];
 
       // Auto-detect: walk up from MCP script dir looking for txData/*/logs/fxserver.log
       if (candidates.length === 0) {
@@ -471,6 +523,85 @@ export function registerTools(server: McpServer) {
       }
 
       return jsonText({ success: false, error: 'Could not find fxserver.log. Set FIVEM_LOG_PATH env var or pass logPath parameter.', triedPaths: candidates });
+    },
+  );
+
+  server.registerTool(
+    'read_client_log',
+    {
+      description:
+        'Read the FiveM CLIENT log (CitizenFX_log_*.log) that the game client itself writes. This is NOT get_client_console: the console only carries what a script printed, while this file also holds load-time SCRIPT ERRORs, resource download and mount lines, NUI/CEF errors and crash context. A resource that fails on the client while the server log stays clean shows up here and nowhere else. Reads the newest log unless a path is given. Only works when the MCP server runs on the same machine as the game client.',
+      inputSchema: z.object({
+        tail: z.coerce.number().optional().describe('Return last N lines (default: 100)'),
+        search: z.string().optional().describe('Filter lines containing this text (case-insensitive)'),
+        errorsOnly: z.coerce.boolean().optional().describe('Only lines that report an error'),
+        resource: z.string().optional().describe('Only lines mentioning this resource'),
+        logPath: z.string().optional().describe('Override: a log file, or a directory holding CitizenFX_log_*.log'),
+      }),
+    },
+    async ({ tail = 100, search, errorsOnly, resource, logPath }) => {
+      const path = await import('node:path');
+      const { readdir } = await import('node:fs/promises');
+
+      const local = process.env.LOCALAPPDATA || '';
+      const dirs = [
+        logPath,
+        activeServer().clientLogPath,
+        local && path.join(local, 'FiveM', 'FiveM.app', 'logs'),
+        // The Enhanced client keeps its own tree next to the legacy one.
+        local && path.join(local, 'FiveM for GTAV Enhanced', 'FiveM.app', 'logs'),
+      ].filter(Boolean) as string[];
+
+      const tried: string[] = [];
+      for (const entry of dirs) {
+        tried.push(entry);
+        try {
+          const s = await stat(entry);
+          let file = entry;
+          if (s.isDirectory()) {
+            const names = (await readdir(entry)).filter(n => /^CitizenFX_log_.*\.log$/.test(n));
+            if (names.length === 0) continue;
+            // Newest by write time, not by name: a session that runs past
+            // midnight keeps the older name.
+            const withTime = await Promise.all(names.map(async n => {
+              const p = path.join(entry, n);
+              return { p, t: (await stat(p)).mtimeMs };
+            }));
+            withTime.sort((a, b) => b.t - a.t);
+            file = withTime[0].p;
+          }
+
+          const content = await readFile(file, 'utf-8');
+          const total = content.split('\n').length;
+          // The client writes colour codes into the file. They carry no
+          // information once the line is read as text.
+          let lines = content.split('\n')
+            .map(l => l.replace(/\^[0-9]/g, '').trimEnd())
+            .filter(l => l.trim() !== '');
+
+          if (errorsOnly) {
+            lines = lines.filter(l =>
+              /SCRIPT ERROR|Error resuming|Uncaught|failed to|Failed to|exception/i.test(l));
+          }
+          if (resource) {
+            const q = resource.toLowerCase();
+            lines = lines.filter(l => l.toLowerCase().includes(q));
+          }
+          if (search) {
+            const q = search.toLowerCase();
+            lines = lines.filter(l => l.toLowerCase().includes(q));
+          }
+          if (lines.length > tail) lines = lines.slice(-tail);
+
+          return jsonText({ success: true, path: file, totalLines: total, returned: lines.length, lines });
+        } catch { continue; }
+      }
+
+      return jsonText({
+        success: false,
+        error: 'No CitizenFX client log found. Set FIVEM_CLIENT_LOG_PATH or pass logPath.',
+        triedPaths: tried,
+      });
     },
   );
 

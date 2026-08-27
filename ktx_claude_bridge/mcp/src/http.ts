@@ -1,4 +1,4 @@
-import { config } from './config.js';
+import { config, activeServer } from './config.js';
 
 interface BridgeResponse {
   success?: boolean;
@@ -12,10 +12,13 @@ interface BridgeResponse {
  * response (reported as citizenfx/rfc#279). While that is broken we send the
  * payload as a query parameter on a GET instead — the Lua side accepts both.
  *
- * Set FIVEM_BRIDGE_TRANSPORT=post to go back to real POST requests once the
- * upstream bug is fixed. Nothing else needs to change.
+ * Set a server's transport to 'post' to go back to real POST requests once the
+ * upstream bug is fixed. It is per server because one machine can run an old
+ * build and a new one side by side.
  */
-const USE_GET_FALLBACK = (process.env.FIVEM_BRIDGE_TRANSPORT ?? 'get') !== 'post';
+function useGetFallback(): boolean {
+  return activeServer().transport !== 'post';
+}
 
 /** How often a dropped connection is retried before we give up. */
 const TRANSPORT_ATTEMPTS = Math.max(1, Number(process.env.FIVEM_BRIDGE_ATTEMPTS ?? 4));
@@ -56,8 +59,9 @@ function isTransportDrop(err: unknown): boolean {
 async function raw(method: 'GET' | 'POST', url: string, body?: string): Promise<Response> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-  if (config.token) {
-    headers['Authorization'] = `Bearer ${config.token}`;
+  const token = activeServer().token;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   let last: unknown;
@@ -127,7 +131,7 @@ async function uploadChunks(payload: string): Promise<string> {
 
   for (let i = 0; i < pieces.length; i++) {
     const url =
-      `${config.bridgeUrl}/chunk?id=${encodeURIComponent(id)}` +
+      `${activeServer().url}/chunk?id=${encodeURIComponent(id)}` +
       `&i=${i + 1}&n=${pieces.length}&d=${encodeURIComponent(pieces[i])}`;
 
     const res = await raw('GET', url);
@@ -157,7 +161,7 @@ async function awaitJob(jobId: string, path: string): Promise<BridgeResponse> {
     await sleep(delay);
     delay = Math.min(delay * 1.3, 1000);
 
-    const res = await raw('GET', `${config.bridgeUrl}/job?id=${encodeURIComponent(jobId)}`);
+    const res = await raw('GET', `${activeServer().url}/job?id=${encodeURIComponent(jobId)}`);
     const text = await res.text();
 
     if (res.status === 404) {
@@ -185,11 +189,11 @@ export async function request(
   const payload = body ? JSON.stringify(body) : undefined;
 
   // Plain GET routes, or real POST if the upstream bug is fixed: one round-trip.
-  if (method === 'GET' || !USE_GET_FALLBACK) {
+  if (method === 'GET' || !useGetFallback()) {
     let res: Response;
 
     try {
-      res = await raw(method, `${config.bridgeUrl}${path}`, USE_GET_FALLBACK ? undefined : payload);
+      res = await raw(method, `${activeServer().url}${path}`, useGetFallback() ? undefined : payload);
     } catch (err) {
       throw describe(err, method, path);
     }
@@ -208,9 +212,9 @@ export async function request(
   try {
     if (encoded.length > config.chunkThreshold) {
       const uploadId = await uploadChunks(payload ?? '{}');
-      url = `${config.bridgeUrl}${path}?async=1&chunked=${encodeURIComponent(uploadId)}`;
+      url = `${activeServer().url}${path}?async=1&chunked=${encodeURIComponent(uploadId)}`;
     } else {
-      url = `${config.bridgeUrl}${path}?async=1&body=${encoded}`;
+      url = `${activeServer().url}${path}?async=1&body=${encoded}`;
     }
   } catch (err) {
     throw describe(err, method, path);

@@ -58,7 +58,10 @@ Environment variables for MCP server:
 - `FIVEM_BRIDGE_CHUNK_THRESHOLD` — payloads longer than this are uploaded to `/chunk` first (default: `1200`)
 - `FIVEM_BRIDGE_TRANSPORT` — `get` (default) or `post`. See "Transport on Enhanced" below.
 - `FIVEM_LOG_PATH` — Path to fxserver.log (auto-detected if empty)
+- `FIVEM_CLIENT_LOG_PATH` — Path to the client's CitizenFX log, file or folder (auto-detected if empty)
 - `FIVEM_CDP_PORT` — CEF DevTools Protocol port (default: `13172`)
+- `FIVEM_SERVERS` — several servers as JSON, `{"name": {"url": ..., "transport": ..., "logPath": ...}}`. Replaces the per-server variables above
+- `FIVEM_SERVER_DEFAULT` — which of them is active at startup (default: the first)
 
 MCP config for Claude Code settings:
 ```json
@@ -72,6 +75,11 @@ MCP config for Claude Code settings:
   }
 }
 ```
+
+**One entry, several servers.** Use `FIVEM_SERVERS` instead of
+`FIVEM_BRIDGE_URL` and switch with `use_server`. One entry per server also
+works, but then nothing stops two of them naming the same URL, and their names
+stop meaning anything. `list_servers` warns when that happens.
 
 ## Endpoints
 
@@ -101,7 +109,13 @@ MCP config for Claude Code settings:
 | POST | /resource/restart | Restart resource (cannot self-restart) |
 | POST | /screenshot | Take screenshot |
 
-## MCP Tools (32 total)
+## MCP Tools (40 total)
+
+### Servers
+| Tool | Description |
+|------|-------------|
+| `list_servers` | Configured servers and which one is active. Warns when two share a URL |
+| `use_server` | Point every following call at another server |
 
 ### Lua Execution
 | Tool | Description |
@@ -135,11 +149,33 @@ MCP config for Claude Code settings:
 | `get_entities` | All server entities (requires OneSync) |
 
 ### Console & Logs
+
+Four sources, two axes. Pick by side and by completeness:
+
+|  | Server | Client |
+|---|---|---|
+| Complete, from disk | `read_server_log` | `read_client_log` |
+| Recent, from memory | `get_server_console` | `get_client_console` |
+
+**The client pair is not the mirror of the server pair.** `get_server_console`
+uses `RegisterConsoleListener` and therefore holds everything, errors included.
+`get_client_console` overrides `print` in the bridge's own Lua state, and every
+resource in FiveM has its own state — so it holds only the output of code run
+through `exec_client_lua`. No other resource's prints, no SCRIPT ERRORs, no
+resource load or mount lines, no NUI/CEF errors.
+
+A resource that fails on the client leaves **nothing** in `get_client_console`
+and nothing in any server-side source. A config value that reaches the server
+but not the client is the clearest case: the server behaves, the client throws
+on every mount, and both consoles stay clean. Reach for `read_client_log`
+whenever a client-side symptom has no server-side trace.
+
 | Tool | Description |
 |------|-------------|
-| `get_server_console` | Live console output. Each line has `resource` field for filtering. Noisy with hitch warnings. |
-| `get_client_console` | Client console for a specific player |
-| `read_server_log` | Full txAdmin fxserver.log (search/tail) |
+| `get_server_console` | Live console output, all resources. `resource` field for filtering. Noisy with hitch warnings. 1000-line ring, starts with the helper |
+| `get_client_console` | Only what `exec_client_lua` printed. See above |
+| `read_server_log` | Full txAdmin fxserver.log, from boot (search/tail) |
+| `read_client_log` | The client's own CitizenFX log: SCRIPT ERRORs, downloads, mounts, CEF |
 | `watch_console` | Poll console for new output over a duration |
 
 ### Events, Commands & Resources

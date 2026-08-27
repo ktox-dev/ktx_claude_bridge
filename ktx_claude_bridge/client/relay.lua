@@ -91,7 +91,12 @@ local function getUnixTime()
     return math.floor(GetGameTimer() / 1000) + timeOffset
 end
 
--- Wrap client-side print
+-- Wrap print. This reaches only this resource's Lua state, so the buffer holds
+-- what code run through exec_client_lua printed and nothing else: another
+-- resource's print goes to its own state, and script errors never pass through
+-- print at all. The complete client picture is the CitizenFX log on disk, which
+-- the MCP tool read_client_log reads. Anyone widening this has to say so in that
+-- tool's description too, or the next reader trusts an empty buffer.
 local _print <const> = print
 ---@diagnostic disable-next-line: lowercase-global
 function print(...)

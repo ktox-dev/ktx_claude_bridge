@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { config } from './config.js';
+import { config, activeServer } from './config.js';
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -38,7 +38,7 @@ export class CDPClient {
   private timeout: number;
 
   constructor(port?: number, timeout?: number) {
-    this.port = port ?? config.cdpPort;
+    this.port = port ?? activeServer().cdpPort;
     this.timeout = timeout ?? config.timeout;
   }
 
