@@ -2,6 +2,8 @@
 
 HTTP bridge + MCP server that lets [Claude Code](https://claude.ai/code) interact with a running FiveM server in real-time. Drive Lua execution, inspect state, poke at NUI, and read console output — all from the model.
 
+Built and used by [KTOX](https://store.ktox.dev), the developer behind the KTX resources for FiveM.
+
 > **Development tool only.** This exposes arbitrary Lua and JavaScript execution against your server and connected clients. Do not run it on a production or public-facing FiveM server. See [Security](#security) below.
 
 ## Features
