@@ -187,7 +187,7 @@ CreateThread(function()
     end
 end)
 
---- Teile eines Uploads einsammeln.
+--- Collect one piece of an upload.
 local function handleChunk(params, res)
     local id, idx, total = params.id, tonumber(params.i), tonumber(params.n)
 
@@ -242,13 +242,13 @@ SetHttpHandler(function(req, res)
     local path, params = parseQuery(req.path)
 
     if req.method == 'GET' then
-        -- Teil-Upload einer langen Nutzlast
+        -- One piece of a long payload
         if path == '/chunk' then
             handleChunk(params, res)
             return
         end
 
-        -- Ergebnis eines Auftrags abholen
+        -- Pick up the result of a job
         if path == '/job' then
             local job = Jobs[params.id or '']
 
@@ -290,8 +290,8 @@ SetHttpHandler(function(req, res)
         local postHandler = POST_ROUTES[path]
 
         if postHandler then
-            -- Nutzlast entweder direkt in ?body= oder stueckweise vorab
-            -- hochgeladen und per ?chunked= referenziert.
+            -- The payload arrives either straight in ?body= or piece by
+            -- piece beforehand, referenced here with ?chunked=.
             local raw = params.body
 
             if params.chunked then

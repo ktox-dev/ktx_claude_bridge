@@ -23,23 +23,23 @@ export function registerTools(server: McpServer) {
       inputSchema: z.object({}),
     },
     async () => {
-      const alle = listServers();
+      const all = listServers();
 
       // Two names on one URL is the situation this tool exists for. Only one
       // FiveM server can hold a port, so the name says nothing about which one
-      // answered — get_server_info's hostname does.
-      const proUrl = new Map<string, string[]>();
-      for (const s of alle) proUrl.set(s.url, [...(proUrl.get(s.url) ?? []), s.name]);
-      const doppelt = [...proUrl.entries()].filter(([, n]) => n.length > 1);
+      // answered. get_server_info's hostname does.
+      const byUrl = new Map<string, string[]>();
+      for (const s of all) byUrl.set(s.url, [...(byUrl.get(s.url) ?? []), s.name]);
+      const shared = [...byUrl.entries()].filter(([, n]) => n.length > 1);
 
       return jsonText({
         active: activeServer().name,
-        servers: alle.map(s => ({
+        servers: all.map(s => ({
           name: s.name, url: s.url, transport: s.transport, active: s.active,
         })),
-        ...(doppelt.length > 0 && {
-          warning: doppelt.map(([url, namen]) =>
-            `${namen.join(' and ')} share ${url}, so only one of them can be running. ` +
+        ...(shared.length > 0 && {
+          warning: shared.map(([url, names]) =>
+            `${names.join(' and ')} share ${url}, so only one of them can be running. ` +
             'Check get_server_info for the hostname to see which one answered.'),
         }),
       });
