@@ -138,6 +138,39 @@ function ExecScoped(resource, code, resolve)
     end)
 end
 
+--- Write a file into another resource's directory, from inside that resource.
+--- Requires the target resource to have: shared_script '@ktx_claude_bridge/exec_bridge.lua'
+---@param resource string
+---@param path string
+---@param content string
+---@param resolve fun(result: table)
+function WriteScoped(resource, path, content, resolve)
+    local id = generateId()
+    PendingCallbacks[id] = { resolve = resolve, source = 0 }
+
+    TriggerEvent('ktx_cb:writeScoped', id, resource, path, content)
+
+    SetTimeout(TIMEOUT, function()
+        local pending = PendingCallbacks[id]
+        if pending then
+            PendingCallbacks[id] = nil
+            pending.resolve({
+                success = false,
+                error = ('Scoped write timed out after %dms. Does %s have shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest?'):format(TIMEOUT, resource),
+            })
+        end
+    end)
+end
+
+-- Receive scoped write results (local event only, same as scoped exec)
+AddEventHandler('ktx_cb:writeScopedResult', function(result)
+    if not result or not result.requestId then return end
+    local pending = PendingCallbacks[result.requestId]
+    if not pending then return end
+    PendingCallbacks[result.requestId] = nil
+    pending.resolve(result)
+end)
+
 --- Execute code inside another resource's client-side Lua VM.
 --- Requires the target resource to have: shared_script '@ktx_claude_bridge/exec_bridge.lua'
 ---@param playerId integer

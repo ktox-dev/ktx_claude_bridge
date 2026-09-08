@@ -8,6 +8,33 @@ local function IsPlayerConnected(playerId)
     return GetPlayerName(playerId) ~= nil
 end
 
+--- Has the resource opted into scoped access?
+---
+--- Waiting out a timeout to find this out costs five minutes and says nothing
+--- useful. The manifest already knows, so ask it and answer at once.
+---@param resource string
+---@return boolean
+local function HasExecBridge(resource)
+    local keys <const> = { 'shared_script', 'server_script', 'client_script' }
+    for _, key in ipairs(keys) do
+        for i = 0, GetNumResourceMetadata(resource, key) - 1 do
+            local value = GetResourceMetadata(resource, key, i)
+            if value and value:find('ktx_claude_bridge/exec_bridge%.lua') then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--- The one thing a caller has to do about a missing opt-in.
+---@param resource string
+---@return string
+local function OptInHint(resource)
+    return ('Resource "%s" has not opted into scoped access. Add shared_script \'@ktx_claude_bridge/exec_bridge.lua\' to its fxmanifest.lua, then run refresh and ensure %s.')
+        :format(resource, resource)
+end
+
 --- Resolve playerId from data, validate online status, and send error if invalid.
 --- Returns playerId on success, nil on failure (error already sent to res).
 ---@param data table { playerId?: integer }
@@ -549,6 +576,10 @@ function HandleExecServerScoped(data, res)
         SendJson(res, 400, { error = 'exec_server_scoped: Resource "' .. data.resource .. '" is ' .. state .. ', not started' })
         return
     end
+    if not HasExecBridge(data.resource) then
+        SendJson(res, 400, { error = OptInHint(data.resource) })
+        return
+    end
 
     ExecScoped(data.resource, data.code, function(result)
         SendJson(res, 200, result)
@@ -570,6 +601,10 @@ function HandleExecClientScoped(data, res)
 
     if GetResourceState(data.resource) ~= 'started' then
         SendJson(res, 400, { error = 'exec_client_scoped: Resource not started: ' .. data.resource })
+        return
+    end
+    if not HasExecBridge(data.resource) then
+        SendJson(res, 400, { error = OptInHint(data.resource) })
         return
     end
 
@@ -663,12 +698,40 @@ function HandleWriteResourceFile(data, res)
         return
     end
 
-    local ok = SaveResourceFile(data.resource, data.path, data.content, -1)
-    if ok then
-        SendJson(res, 200, { success = true, resource = data.resource, path = data.path, size = #data.content })
-    else
-        SendJson(res, 500, { success = false, error = 'Failed to write file' })
+    -- SaveResourceFile writes only into the directory of the resource that
+    -- calls it. From here that is the bridge, so a write aimed anywhere else
+    -- has to be made by the target itself, through exec_bridge.lua.
+    if data.resource == resourceName then
+        local ok = SaveResourceFile(resourceName, data.path, data.content, -1)
+        if ok then
+            SendJson(res, 200, { success = true, resource = data.resource, path = data.path, size = #data.content })
+        else
+            SendJson(res, 500, { success = false, error = 'SaveResourceFile refused to write ' .. data.path })
+        end
+        return
     end
+
+    if not HasExecBridge(data.resource) then
+        SendJson(res, 400, {
+            error = OptInHint(data.resource) ..
+                ' FiveM lets a resource write only into its own folder, so the write has to be made by the target itself.',
+        })
+        return
+    end
+
+    WriteScoped(data.resource, data.path, data.content, function(result)
+        if result.success then
+            SendJson(res, 200, {
+                success = true,
+                resource = result.resource,
+                path = result.path,
+                size = result.size,
+                via = 'exec_bridge',
+            })
+        else
+            SendJson(res, 500, { success = false, error = result.error or ('SaveResourceFile refused to write ' .. data.path) })
+        end
+    end)
 end
 
 --- POST /resource/files, list files in a resource using manifest metadata

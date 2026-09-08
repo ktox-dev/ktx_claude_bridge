@@ -4,7 +4,7 @@ game 'gta5'
 
 name 'ktx_claude_bridge'
 author 'Ktox'
-version '1.0.0'
+version '1.0.1'
 description 'HTTP bridge for Claude Code, development tool only'
 
 -- The helper holds the console buffer and is the only way this resource

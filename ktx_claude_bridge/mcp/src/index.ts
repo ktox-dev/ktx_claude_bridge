@@ -5,7 +5,7 @@ import { registerCdpTools } from './cdp-tools.js';
 
 const server = new McpServer({
   name: 'ktx-claude-bridge',
-  version: '1.0.0',
+  version: '1.0.1',
 });
 
 registerTools(server);

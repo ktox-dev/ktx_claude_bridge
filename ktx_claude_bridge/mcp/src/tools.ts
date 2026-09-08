@@ -161,7 +161,7 @@ export function registerTools(server: McpServer) {
     'write_resource_file',
     {
       description:
-        'Write a file to a FiveM resource directory. Can create new files or overwrite existing ones. Use with restart_resource for hot-reload. WARNING: Cannot write .lua/.js files unless the server has add_filesystem_permission configured. Safe for .json, .cfg, .html, .css, and data files.',
+        'Write a file into a FiveM resource directory. FiveM lets a resource write only into its own folder, so a write aimed at anything other than ktx_claude_bridge is carried out by the target resource itself and needs shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest. Without that line the call fails with a timeout naming the resource. Follow with run_command refresh and restart_resource to load what you wrote.',
       inputSchema: z.object({
         resource: z.string().describe('Resource name'),
         path: z.string().describe('File path relative to resource root'),

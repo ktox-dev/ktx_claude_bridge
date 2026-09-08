@@ -68,6 +68,8 @@ end
 local eventName <const> = 'ktx_cb:execScoped'
 local serverResultEvent <const> = 'ktx_cb:execScopedResult'
 local clientResultEvent <const> = 'ktx_cb:execScopedClientResult'
+local writeEvent <const> = 'ktx_cb:writeScoped'
+local writeResultEvent <const> = 'ktx_cb:writeScopedResult'
 
 if context == 'server' then
     -- Local-only handler: TriggerEvent from bridge, NOT reachable from network
@@ -76,6 +78,23 @@ if context == 'server' then
         local result = execCode(code)
         result.requestId = requestId
         TriggerEvent(serverResultEvent, result)
+    end)
+
+    -- SaveResourceFile only writes into the directory of the resource that
+    -- calls it. Called from the bridge it can therefore only ever write into
+    -- the bridge. Here it runs inside the target, so the target is its own
+    -- resource and the write lands. The content travels as an event argument
+    -- and never through load(), so quotes and newlines need no escaping.
+    AddEventHandler(writeEvent, function(requestId, targetResource, path, content)
+        if targetResource ~= resName then return end
+        local ok = SaveResourceFile(resName, path, content, -1)
+        TriggerEvent(writeResultEvent, {
+            requestId = requestId,
+            success = ok and true or false,
+            resource = resName,
+            path = path,
+            size = #content,
+        })
     end)
 else
     -- Client receives from server via net event

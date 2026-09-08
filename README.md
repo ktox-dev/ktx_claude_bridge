@@ -44,9 +44,10 @@ exec_server_lua_scoped ktx_garages
 read_client_log errorsOnly=true          one SCRIPT ERROR on that line
 ```
 
-Six calls and no alt-tab. Claude writes the corrected key with
-`write_resource_file`, runs `refresh` and `restart_resource`, and
-`watch_console` says whether the restart came up clean.
+Six calls and no alt-tab. Claude then edits `config.lua` the way it edits any
+file, runs `refresh` and `restart_resource`, and `watch_console` says whether
+the restart came up clean. For a server the editor cannot reach,
+`write_resource_file` puts the file there instead.
 
 ## Requirements
 
@@ -135,6 +136,11 @@ Then run `refresh`, followed by `ensure <resource>`. That enables
 `exec_server_lua_scoped` and `exec_client_lua_scoped` for it. The server side of
 this handler listens on a local event, not a net event, so a client cannot reach
 it.
+
+The same line is what lets `write_resource_file` reach that resource. FiveM
+allows `SaveResourceFile` to write only into the folder of the resource that
+calls it, so a write aimed anywhere else is carried out by the target itself.
+Without the opt in, the bridge can write into its own folder and nowhere else.
 
 Take the line back out before the resource goes anywhere near a live server.
 
@@ -270,7 +276,7 @@ A resource that fails on the client leaves nothing in it. That is what
 | Tool | Description |
 |---|---|
 | `read_resource_file` | Read a file through `LoadResourceFile` |
-| `write_resource_file` | Write a file through `SaveResourceFile` |
+| `write_resource_file` | Write a file. Into another resource only if that resource opted in, see below |
 | `list_resource_files` | The files a resource declares in its manifest |
 
 #### Console and logs

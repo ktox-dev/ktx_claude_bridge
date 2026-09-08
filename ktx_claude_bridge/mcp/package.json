@@ -1,6 +1,6 @@
 {
   "name": "ktx-claude-bridge-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for ktx_claude_bridge, a FiveM development bridge for Claude Code",
   "license": "MIT",
   "type": "module",
