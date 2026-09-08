@@ -36,12 +36,12 @@ export function registerCdpTools(server: McpServer) {
     'nui_exec_js',
     {
       description:
-        'Execute JavaScript in any resource\'s NUI frame via Chrome DevTools Protocol. Can target specific resources by name (e.g. "ox_inventory", "qbx_hud"). Code runs in an async context — use "return" for results. Supports await for Promises. Omit resourceName to run in the root NUI page.',
+        'Execute JavaScript in any resource\'s NUI frame via Chrome DevTools Protocol. Can target specific resources by name (e.g. "ox_inventory", "qbx_hud"). Code runs in an async context, so use "return" for results. Supports await for Promises. Omit resourceName to run in the root NUI page.',
       inputSchema: z.object({
         code: z
           .string()
           .describe(
-            'JavaScript code to execute. Runs inside async function — use "return" for results, "await" for promises.',
+            'JavaScript code to execute. Runs inside an async function. Use "return" for results and "await" for promises.',
           ),
         resourceName: z
           .string()
@@ -163,7 +163,7 @@ export function registerCdpTools(server: McpServer) {
     'nui_click_element',
     {
       description:
-        'Click a DOM element by CSS selector in any resource\'s NUI frame. This is the correct way to interact with NUI menus and buttons — do NOT use game controls (SetControlNormal) for NUI interaction. By default uses synthetic click (el.click()). Set synthetic=false to use CDP mouse events at the element\'s center coordinates.',
+        'Click a DOM element by CSS selector in any resource\'s NUI frame. This is the correct way to interact with NUI menus and buttons. Do NOT use game controls (SetControlNormal) for NUI interaction. By default uses synthetic click (el.click()). Set synthetic=false to use CDP mouse events at the element\'s center coordinates.',
       inputSchema: z.object({
         selector: z.string().describe('CSS selector of element to click'),
         resourceName: z
@@ -189,7 +189,7 @@ export function registerCdpTools(server: McpServer) {
           return jsonText({ success: true, ...(result as object) });
         }
 
-        // CDP mouse event approach — get element center coordinates
+        // CDP mouse event approach. Get the element centre first.
         const js = `
           const el = document.querySelector(${JSON.stringify(selector)});
           if (!el) return null;
@@ -311,7 +311,7 @@ export function registerCdpTools(server: McpServer) {
     'nui_simulate_click',
     {
       description:
-        'Simulate a mouse click at absolute pixel coordinates in the NUI layer. Works on any visible NUI element from any resource. Use nui_screenshot to see NUI element positions, or take_screenshot to see the full game view. Prefer nui_click_element with a CSS selector when possible — use this only when you need coordinate-based clicking.',
+        'Simulate a mouse click at absolute pixel coordinates in the NUI layer. Works on any visible NUI element from any resource. Use nui_screenshot to see NUI element positions, or take_screenshot to see the full game view. Prefer nui_click_element with a CSS selector when possible. Use this only when you need coordinate-based clicking.',
       inputSchema: z.object({
         x: z.coerce.number().describe('X pixel coordinate'),
         y: z.coerce.number().describe('Y pixel coordinate'),

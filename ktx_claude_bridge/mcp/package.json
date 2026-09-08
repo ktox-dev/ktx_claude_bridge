@@ -1,8 +1,13 @@
 {
   "name": "ktx-claude-bridge-mcp",
   "version": "0.1.0",
+  "description": "MCP server for ktx_claude_bridge, a FiveM development bridge for Claude Code",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js"

@@ -5,7 +5,11 @@ game 'gta5'
 name 'ktx_claude_bridge'
 author 'Ktox'
 version '0.1.0'
-description 'HTTP bridge for Claude Code AI assistant — DEV ONLY'
+description 'HTTP bridge for Claude Code, development tool only'
+
+-- The helper holds the console buffer and is the only way this resource
+-- can restart itself. Without it both fail later instead of here.
+dependency 'ktx_bridge_helper'
 
 server_scripts {
     'server/config.lua',

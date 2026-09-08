@@ -115,7 +115,7 @@ export function registerTools(server: McpServer) {
     'get_player_data',
     {
       description:
-        'Get Qbox player data (job, gang, money, charinfo, metadata). Works for online and offline players. Requires qbx_core. Prefer this over manually calling exports — the export name is exports.qbx_core:GetPlayer(src), NOT GetPlayerData.',
+        'Get Qbox player data (job, gang, money, charinfo, metadata). Works for online and offline players. Requires qbx_core. Prefer this over manually calling exports. The export name is exports.qbx_core:GetPlayer(src), NOT GetPlayerData.',
       inputSchema: z.object({
         playerId: z.coerce.number().optional().describe('Server ID of online player'),
         citizenid: z.string().optional().describe('CitizenID (works for offline players too)'),
@@ -147,7 +147,7 @@ export function registerTools(server: McpServer) {
     'read_resource_file',
     {
       description:
-        'Read any file from any FiveM resource by name and path. Can read Lua source, configs, HTML, JSON — anything in the resource directory. Use list_resource_files first to discover available files.',
+        'Read any file from any FiveM resource by name and path. Can read Lua source, configs, HTML, JSON, anything in the resource directory. Use list_resource_files first to discover available files.',
       inputSchema: z.object({
         resource: z.string().describe('Resource name (e.g. "ktx_garages", "ox_inventory")'),
         path: z.string().describe('File path relative to resource root (e.g. "fxmanifest.lua", "server/main.lua", "shared/config.lua")'),
@@ -217,10 +217,10 @@ export function registerTools(server: McpServer) {
     'get_server_console',
     {
       description:
-        'Get recent server console output. Captured with RegisterConsoleListener, so it holds EVERYTHING the server console printed, script errors included, from every resource. Two limits: it is a 1000-line ring buffer, and it starts when ktx_bridge_helper starts, so anything older is gone — read_server_log has the full history from boot. Each line has a "resource" field (e.g. "script:ktx_garages", "citizen-server-impl") to filter on. Hitch warnings and server-list errors from "citizen-server-impl" are noise. This is the SERVER only: a resource that fails on the client leaves nothing here, see read_client_log.',
+        'Get recent server console output. Captured with RegisterConsoleListener, so it holds EVERYTHING the server console printed, script errors included, from every resource. Two limits: it is a 1000-line ring buffer, and it starts when ktx_bridge_helper starts, so anything older is gone. read_server_log has the full history from boot. Each line has a "resource" field (e.g. "script:ktx_garages", "citizen-server-impl") to filter on. Hitch warnings and server-list errors from "citizen-server-impl" are noise. This is the SERVER only: a resource that fails on the client leaves nothing here, see read_client_log.',
       inputSchema: z.object({
         count: z.coerce.number().optional().describe('Max lines to return'),
-        since: z.coerce.number().optional().describe('Unix timestamp (seconds) — only return lines after this time. Use exec_server_lua with "return os.time()" to get the current server timestamp.'),
+        since: z.coerce.number().optional().describe('Unix timestamp (seconds). Only return lines after this time. Use exec_server_lua with "return os.time()" to get the current server timestamp.'),
       }),
     },
     async ({ count, since }) => {
@@ -258,7 +258,7 @@ export function registerTools(server: McpServer) {
     'exec_server_lua',
     {
       description:
-        'Execute Lua code on the FiveM server and return the result. Runs in the BRIDGE resource\'s server-side Lua VM — you have access to all server natives and can call other resources via exports (use COLON syntax: exports.resourceName:exportName(args)). You CANNOT access other resources\' local/global variables directly. Use "return" to get values back.\n\nCommon patterns:\n- Get player: exports.qbx_core:GetPlayer(serverId)\n- Statebags: Player(serverId).state.keyName or GetStateBagValue("player:"..id, "key")\n- DB query: exports.oxmysql:executeSync("SELECT ...", {})\n- Resource state: GetResourceState("name")\n\nIMPORTANT: ox_lib\'s "lib" global is NOT available here (it only exists inside resources that depend on ox_lib). To call lib.callback targets, trigger the underlying event or use the resource\'s exports instead.',
+        'Execute Lua code on the FiveM server and return the result. Runs in the BRIDGE resource\'s server-side Lua VM, so you have access to all server natives and can call other resources via exports (use COLON syntax: exports.resourceName:exportName(args)). You CANNOT access other resources\' local/global variables directly. Use "return" to get values back.\n\nCommon patterns:\n- Get player: exports.qbx_core:GetPlayer(serverId)\n- Statebags: Player(serverId).state.keyName or GetStateBagValue("player:"..id, "key")\n- DB query: exports.oxmysql:executeSync("SELECT ...", {})\n- Resource state: GetResourceState("name")\n\nIMPORTANT: ox_lib\'s "lib" global is NOT available here (it only exists inside resources that depend on ox_lib). To call lib.callback targets, trigger the underlying event or use the resource\'s exports instead.',
       inputSchema: z.object({
         code: z.string().describe('Lua code to execute'),
       }),
@@ -270,7 +270,7 @@ export function registerTools(server: McpServer) {
     'exec_client_lua',
     {
       description:
-        'Execute Lua code on a connected player\'s FiveM client. Runs in the BRIDGE resource\'s client-side Lua VM with access to client natives. If playerId is omitted, targets the first connected player.\n\nCommon patterns:\n- Player ped: PlayerPedId()\n- Position: GetEntityCoords(PlayerPedId())\n- Vehicle: GetVehiclePedIsIn(PlayerPedId(), false)\n- Teleport: SetEntityCoords(PlayerPedId(), x, y, z)\n- Run commands: ExecuteCommand("commandname") — opens NUI menus, triggers actions\n\nINPUT LAYER WARNING: FiveM has two separate input layers — the GAME layer (GTA controls like movement, aim, enter vehicle) and the NUI layer (HTML/JS UI overlays). When a NUI menu is open (focused), keyboard/mouse input goes to NUI FIRST, not the game. SetControlNormal/DisableControlAction only affect GAME controls — they CANNOT close or interact with NUI menus. To interact with NUI menus, use the nui_* CDP tools (nui_click_element, nui_exec_js, etc). To close a NUI menu, use nui_click_element on its close button, or nui_exec_js to call the resource\'s close function.\n\nIMPORTANT: This runs in the bridge\'s Lua VM. You can call other resources\' client exports with COLON syntax: exports.resourceName:exportName(args). You CANNOT access other resources\' globals/locals.',
+        'Execute Lua code on a connected player\'s FiveM client. Runs in the BRIDGE resource\'s client-side Lua VM with access to client natives. If playerId is omitted, targets the first connected player.\n\nCommon patterns:\n- Player ped: PlayerPedId()\n- Position: GetEntityCoords(PlayerPedId())\n- Vehicle: GetVehiclePedIsIn(PlayerPedId(), false)\n- Teleport: SetEntityCoords(PlayerPedId(), x, y, z)\n- Run commands: ExecuteCommand("commandname"), opens NUI menus and triggers actions\n\nINPUT LAYER WARNING: FiveM has two separate input layers: the GAME layer (GTA controls like movement, aim, enter vehicle) and the NUI layer (HTML/JS UI overlays). When a NUI menu is open (focused), keyboard/mouse input goes to NUI FIRST, not the game. SetControlNormal/DisableControlAction only affect GAME controls. They CANNOT close or interact with NUI menus. To interact with NUI menus, use the nui_* CDP tools (nui_click_element, nui_exec_js, etc). To close a NUI menu, use nui_click_element on its close button, or nui_exec_js to call the resource\'s close function.\n\nIMPORTANT: This runs in the bridge\'s Lua VM. You can call other resources\' client exports with COLON syntax: exports.resourceName:exportName(args). You CANNOT access other resources\' globals/locals.',
       inputSchema: z.object({
         code: z.string().describe('Lua code to execute on the client'),
         playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
@@ -360,7 +360,7 @@ export function registerTools(server: McpServer) {
     'run_client_command',
     {
       description:
-        'Run a registered FiveM command on a player\'s client. Executes ExecuteCommand() client-side. Examples: "e menu", "emote wave", "garages". If playerId is omitted, targets the first connected player. Note: many commands open NUI menus — after running this, use nui_screenshot or take_screenshot to see the result, and nui_* tools to interact with any opened UI.',
+        'Run a registered FiveM command on a player\'s client. Executes ExecuteCommand() client-side. Examples: "e menu", "emote wave", "garages". If playerId is omitted, targets the first connected player. Note: many commands open NUI menus. After running this, use nui_screenshot or take_screenshot to see the result, and nui_* tools to interact with any opened UI.',
       inputSchema: z.object({
         command: z.string().describe('Client-side command to execute'),
         playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
@@ -374,7 +374,7 @@ export function registerTools(server: McpServer) {
     'restart_resource',
     {
       description:
-        'Restart a FiveM resource (runs "ensure <name>"). Restarts are fast — typically under 1 second. Use get_server_console afterwards to check for startup errors. IMPORTANT: If you modified the resource\'s fxmanifest.lua (e.g. added scripts), run run_command({command: "refresh"}) BEFORE restarting — FiveM caches manifests and won\'t pick up changes without refresh.',
+        'Restart a FiveM resource (runs "ensure <name>"). Restarts are fast, typically under 1 second. Use get_server_console afterwards to check for startup errors. IMPORTANT: If you modified the resource\'s fxmanifest.lua (e.g. added scripts), run run_command({command: "refresh"}) BEFORE restarting. FiveM caches manifests and won\'t pick up changes without refresh.',
       inputSchema: z.object({
         resourceName: z.string().describe('Resource name to restart'),
       }),
@@ -415,7 +415,7 @@ export function registerTools(server: McpServer) {
     'get_nui_state',
     {
       description:
-        'Get the NUI (UI overlay) focus state on a player\'s client. Returns: focused (NUI is receiving input instead of the game), focusedKeepInput (NUI focused but game still receives input), cursorActive (mouse cursor visible). When focused=true, game controls like SetControlNormal will NOT work — input goes to NUI instead. Use nui_* tools to interact with the UI, or close the NUI menu first.',
+        'Get the NUI (UI overlay) focus state on a player\'s client. Returns: focused (NUI is receiving input instead of the game), focusedKeepInput (NUI focused but game still receives input), cursorActive (mouse cursor visible). When focused=true, game controls like SetControlNormal will NOT work. Input goes to NUI instead. Use nui_* tools to interact with the UI, or close the NUI menu first.',
       inputSchema: z.object({
         playerId: z.coerce.number().optional().describe('Player server ID (default: first connected player)'),
       }),
@@ -611,7 +611,7 @@ export function registerTools(server: McpServer) {
     'run_profiler',
     {
       description:
-        'Record a SERVER-SIDE CPU profile for a number of frames. Returns Chrome DevTools trace format JSON showing per-resource CPU usage, event handler timing, and thread activity. Note: this profiles the server only — client-side profiling requires the player to use the "profiler" command in F8 console. For NUI/JS performance, use nui_exec_js with performance.now() or the Performance CDP domain.',
+        'Record a SERVER-SIDE CPU profile for a number of frames. Returns Chrome DevTools trace format JSON showing per-resource CPU usage, event handler timing, and thread activity. Note: this profiles the server only. Client-side profiling requires the player to use the "profiler" command in F8 console. For NUI/JS performance, use nui_exec_js with performance.now() or the Performance CDP domain.',
       inputSchema: z.object({
         frames: z.coerce.number().optional().describe('Number of frames to record (default: 500)'),
       }),

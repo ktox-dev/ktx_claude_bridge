@@ -17,7 +17,7 @@ CreateThread(function()
         return
     end
 
-    print('^3[ktx_claude_bridge] DEV TOOL ACTIVE — Do not use in production^0')
+    print('^3[ktx_claude_bridge] Development tool active. Do not use in production.^0')
     if Config.authToken == '' then
         print('^3[ktx_claude_bridge] No token set, requests are accepted from this machine only.^0')
         print('^3[ktx_claude_bridge] To reach the bridge from another machine, set ktx_bridge_token in your server.cfg.^0')

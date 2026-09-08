@@ -6,6 +6,3 @@ package-lock.json
 *.log
 .claude
 __profiler_*.json
-
-# What the bridge writes while it probes a running server.
-ktx_claude_bridge/probe/

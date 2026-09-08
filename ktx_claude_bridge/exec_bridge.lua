@@ -1,9 +1,9 @@
 --[[
-    ktx_claude_bridge — Injectable exec bridge
+    ktx_claude_bridge, injectable exec bridge
     Add to any resource's fxmanifest.lua:
         shared_script '@ktx_claude_bridge/exec_bridge.lua'
     This gives the bridge full access to this resource's Lua VM (server + client).
-    DEV ONLY — remove before production.
+    Development only. Remove before production.
 ]]
 
 local resName <const> = GetCurrentResourceName()
@@ -63,7 +63,7 @@ local function execCode(code)
 end
 
 -- Register event handler for scoped execution
--- Server-side: local event only (NOT RegisterNetEvent — prevents clients from triggering arbitrary code)
+-- Server-side: local event only (NOT RegisterNetEvent, which would let a client trigger arbitrary code)
 -- Client-side: net event from server, results go back via separate net event
 local eventName <const> = 'ktx_cb:execScoped'
 local serverResultEvent <const> = 'ktx_cb:execScopedResult'

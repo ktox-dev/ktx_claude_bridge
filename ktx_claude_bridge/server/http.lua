@@ -373,7 +373,7 @@ local function countKeys(t)
     return n
 end
 
-print(('[ktx_claude_bridge] HTTP handler registered — %d GET, %d POST routes'):format(
+print(('[ktx_claude_bridge] HTTP handler registered, %d GET and %d POST routes'):format(
     countKeys(GET_ROUTES),
     countKeys(POST_ROUTES)
 ))

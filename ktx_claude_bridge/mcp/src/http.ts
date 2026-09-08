@@ -10,7 +10,7 @@ interface BridgeResponse {
  * On FiveM for GTAV Enhanced (b96) the callback given to `req.setDataHandler`
  * never fires, so every POST hangs and the connection is closed without a
  * response (reported as citizenfx/rfc#279). While that is broken we send the
- * payload as a query parameter on a GET instead — the Lua side accepts both.
+ * payload as a query parameter on a GET instead. The Lua side accepts both.
  *
  * Set a server's transport to 'post' to go back to real POST requests once the
  * upstream bug is fixed. It is per server because one machine can run an old
@@ -27,7 +27,7 @@ const TRANSPORT_ATTEMPTS = Math.max(1, Number(process.env.FIVEM_BRIDGE_ATTEMPTS 
  * Did the connection die underneath us, or did the request genuinely fail?
  *
  * Only the first kind is worth repeating. A timeout we asked for ourselves and
- * a real HTTP status are answers, not accidents — repeating those would hide
+ * a real HTTP status are answers, not accidents. Repeating those would hide
  * problems instead of surviving them.
  */
 function isTransportDrop(err: unknown): boolean {
@@ -49,7 +49,7 @@ function isTransportDrop(err: unknown): boolean {
  * FXServer on Enhanced throws fresh TCP connections away. Measured on b118 with
  * the server up for 13 hours: ten calls back to back land five times, ten calls
  * two seconds apart land ZERO times, ten calls over one kept-alive connection
- * land eight times. The same rate hits `/info.json`, which no resource owns —
+ * land eight times. The same rate hits `/info.json`, which no resource owns,
  * so this is the platform, not this bridge.
  *
  * The counter-intuitive part is that spacing calls out makes it worse, not
@@ -108,7 +108,7 @@ function describe(err: unknown, method: string, path: string): Error {
   return new Error(
     `Bridge unreachable (${method} ${path}) after ${TRANSPORT_ATTEMPTS} attempts: ${msg}. ` +
       `The connection was dropped every time. Check whether the FiveM server runs with ` +
-      `ktx_claude_bridge started — but verify before believing it: curl the endpoint directly, ` +
+      `ktx_claude_bridge started, but verify before believing it. Curl the endpoint directly, ` +
       `since the platform drops fresh connections on its own.`,
   );
 }
@@ -172,7 +172,7 @@ async function uploadChunks(payload: string): Promise<string> {
  * Wait for a job to finish.
  *
  * FiveM closes a held-open HTTP response after a few seconds, which used to
- * kill every call that ran longer than that — the Lua kept running, only the
+ * kill every call that ran longer than that. The Lua kept running, only the
  * answer never arrived. Long work now returns a job id immediately and we poll
  * for the result, so runtime is decoupled from connection lifetime.
  */

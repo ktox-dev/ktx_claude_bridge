@@ -266,7 +266,7 @@ export class CDPClient {
       }
     }
 
-    // Contexts might not be populated yet — get frames and try to match
+    // Contexts might not be populated yet, so get frames and try to match
     const frames = await this.getFrames();
     const frame = frames.find((f) => f.resourceName === resourceName);
     if (!frame) return undefined;

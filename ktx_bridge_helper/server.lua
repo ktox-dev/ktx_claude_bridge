@@ -72,7 +72,7 @@ exports('restartBridge', function()
     return true
 end)
 
--- RegisterConsoleListener — captures ALL server output
+-- RegisterConsoleListener, captures ALL server output
 local inListener = false
 RegisterConsoleListener(function(channel, message)
     if inListener then return end
@@ -100,4 +100,4 @@ AddEventHandler('onServerResourceStop', function(resource)
     push({ timestamp = os.time(), level = 'event', message = 'Resource stopped: ' .. resource, resource = resource })
 end)
 
-print('[ktx_bridge_helper] Console capture + restart helper active (' .. MAX_LINES .. ' lines) — DO NOT RESTART')
+print('[ktx_bridge_helper] Console capture + restart helper active (' .. MAX_LINES .. ' lines). Do not restart this resource.')

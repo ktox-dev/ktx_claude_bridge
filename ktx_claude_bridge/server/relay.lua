@@ -35,7 +35,7 @@ function ExecOnClient(playerId, code, resolve)
             PendingCallbacks[id] = nil
             local stillOnline = GetPlayerName(playerId) ~= nil
             local reason = stillOnline
-                and ('Client exec timed out after %dms (player %d) — code may be blocking or waiting for user input'):format(TIMEOUT, playerId)
+                and ('Client exec timed out after %dms (player %d). The code may be blocking or waiting for user input'):format(TIMEOUT, playerId)
                 or ('Player %d disconnected during client exec'):format(playerId)
             pending.resolve({
                 success = false,
@@ -69,7 +69,7 @@ function TakeScreenshot(playerId, resolve, options)
     local capture = { encoding = encoding }
     if options.quality then capture.quality = options.quality end
 
-    -- Use server-side export — no client relay needed
+    -- Use the server-side export, no client relay needed
     exports.screencapture:serverCapture(playerId, capture, function(data)
         local pending = PendingCallbacks[id]
         if pending then
@@ -132,7 +132,7 @@ function ExecScoped(resource, code, resolve)
             PendingCallbacks[id] = nil
             pending.resolve({
                 success = false,
-                error = ('Scoped exec timed out after %dms — does %s have shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest?'):format(TIMEOUT, resource),
+                error = ('Scoped exec timed out after %dms. Does %s have shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest?'):format(TIMEOUT, resource),
             })
         end
     end)
@@ -157,7 +157,7 @@ function ExecScopedClient(playerId, resource, code, resolve)
             -- Check if player disconnected during execution
             local stillOnline = GetPlayerName(playerId) ~= nil
             local reason = stillOnline
-                and ('Scoped client exec timed out after %dms — does %s have shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest? (resource may need restart after adding it)'):format(TIMEOUT, resource)
+                and ('Scoped client exec timed out after %dms. Does %s have shared_script \'@ktx_claude_bridge/exec_bridge.lua\' in its fxmanifest? (resource may need restart after adding it)'):format(TIMEOUT, resource)
                 or ('Player %d disconnected during scoped client exec'):format(playerId)
             pending.resolve({
                 success = false,
@@ -167,7 +167,7 @@ function ExecScopedClient(playerId, resource, code, resolve)
     end)
 end
 
--- Receive scoped exec results (server-side, local event only — NOT network-reachable)
+-- Receive scoped exec results (server-side, local event only, NOT network-reachable)
 AddEventHandler('ktx_cb:execScopedResult', function(result)
     if not result or not result.requestId then return end
     local pending = PendingCallbacks[result.requestId]

@@ -33,7 +33,7 @@ local function ResolvePlayer(data, res, label)
     return playerId
 end
 
---- GET /status — server health check
+--- GET /status, server health check
 ---@param _params table
 ---@param res table
 function HandleStatus(_params, res)
@@ -55,7 +55,7 @@ function HandleStatus(_params, res)
     })
 end
 
---- GET /players — detailed player list
+--- GET /players, detailed player list
 ---@param _params table
 ---@param res table
 function HandlePlayers(_params, res)
@@ -81,7 +81,7 @@ function HandlePlayers(_params, res)
     SendJson(res, 200, { success = true, players = result })
 end
 
---- GET /resources — list all resources with states
+--- GET /resources, list all resources with states
 ---@param _params table
 ---@param res table
 function HandleResources(_params, res)
@@ -99,7 +99,7 @@ function HandleResources(_params, res)
     SendJson(res, 200, { success = true, resources = result })
 end
 
---- GET /server/info — extended server information
+--- GET /server/info, extended server information
 ---@param _params table
 ---@param res table
 function HandleServerInfo(_params, res)
@@ -139,7 +139,7 @@ function HandleServerInfo(_params, res)
     })
 end
 
---- POST /db/query — execute a read-only SQL query via oxmysql
+--- POST /db/query, execute a read-only SQL query via oxmysql
 ---@param data table { query: string, params?: any[] }
 ---@param res table
 function HandleDbQuery(data, res)
@@ -171,7 +171,7 @@ function HandleDbQuery(data, res)
     end
 end
 
---- GET /player/data — get Qbox player data (online or offline)
+--- GET /player/data, get Qbox player data (online or offline)
 ---@param params table { playerId?: number, citizenid?: string }
 ---@param res table
 function HandlePlayerData(params, res)
@@ -236,7 +236,7 @@ function HandlePlayerData(params, res)
     })
 end
 
---- GET /resource/info — detailed info about a specific resource
+--- GET /resource/info, detailed info about a specific resource
 ---@param params table { name: string }
 ---@param res table
 function HandleResourceInfo(params, res)
@@ -286,7 +286,7 @@ function HandleResourceInfo(params, res)
     })
 end
 
---- GET /entities — list all server-side entities (requires OneSync)
+--- GET /entities, list all server-side entities (requires OneSync)
 ---@param params table { type?: string }
 ---@param res table
 function HandleEntities(params, res)
@@ -341,7 +341,7 @@ function HandleEntities(params, res)
     SendJson(res, 200, { success = true, entities = result, total = #result })
 end
 
---- GET /console/server — recent server console lines
+--- GET /console/server, recent server console lines
 ---@param params table { count?, since? }
 ---@param res table
 function HandleServerConsole(params, res)
@@ -351,7 +351,7 @@ function HandleServerConsole(params, res)
     SendJson(res, 200, { success = true, lines = lines, total = #lines })
 end
 
---- GET /console/client — recent client console lines
+--- GET /console/client, recent client console lines
 ---@param params table { playerId, count?, since? }
 ---@param res table
 function HandleClientConsole(params, res)
@@ -372,7 +372,7 @@ function HandleClientConsole(params, res)
     SendJson(res, 200, { success = true, lines = lines, total = #lines })
 end
 
---- POST /exec/server — execute Lua on the server
+--- POST /exec/server, execute Lua on the server
 ---@param data table { code: string }
 ---@param res table
 function HandleExecServer(data, res)
@@ -391,7 +391,7 @@ function HandleExecServer(data, res)
     SendJson(res, 200, result)
 end
 
---- POST /exec/client — execute Lua on a player's client
+--- POST /exec/client, execute Lua on a player's client
 ---@param data table { code: string, playerId?: integer }
 ---@param res table
 function HandleExecClient(data, res)
@@ -408,7 +408,7 @@ function HandleExecClient(data, res)
     end)
 end
 
---- POST /event/server — trigger a server event
+--- POST /event/server, trigger a server event
 ---@param data table { eventName: string, args?: any[] }
 ---@param res table
 function HandleTriggerServerEvent(data, res)
@@ -421,7 +421,7 @@ function HandleTriggerServerEvent(data, res)
     SendJson(res, 200, { success = true })
 end
 
---- POST /event/client — trigger a client event on a player
+--- POST /event/client, trigger a client event on a player
 ---@param data table { eventName: string, playerId: integer, args?: any[] }
 ---@param res table
 function HandleTriggerClientEvent(data, res)
@@ -442,10 +442,10 @@ function HandleTriggerClientEvent(data, res)
     end
 
     TriggerClientEvent(data.eventName, playerId, table.unpack(data.args or {}))
-    SendJson(res, 200, { success = true, note = 'Event dispatched (fire-and-forget — delivery is not confirmed)' })
+    SendJson(res, 200, { success = true, note = 'Event dispatched (fire and forget, delivery is not confirmed)' })
 end
 
---- POST /command — execute a server console command
+--- POST /command, execute a server console command
 ---@param data table { command: string }
 ---@param res table
 function HandleCommand(data, res)
@@ -477,7 +477,7 @@ function HandleCommand(data, res)
     SendJson(res, 200, { success = true })
 end
 
---- POST /resource/restart — restart a resource
+--- POST /resource/restart, restart a resource
 ---@param data table { resourceName: string }
 ---@param res table
 function HandleRestartResource(data, res)
@@ -506,7 +506,7 @@ function HandleRestartResource(data, res)
     SendJson(res, 200, { success = true, message = 'ensure ' .. data.resourceName })
 end
 
---- POST /command/client — execute a registered command on a player's client
+--- POST /command/client, execute a registered command on a player's client
 ---@param data table { command: string, playerId?: integer }
 ---@param res table
 function HandleClientCommand(data, res)
@@ -527,7 +527,7 @@ function HandleClientCommand(data, res)
     end)
 end
 
---- POST /exec/server/scoped — execute Lua inside another resource's server VM
+--- POST /exec/server/scoped, execute Lua inside another resource's server VM
 ---@param data table { code: string, resource: string }
 ---@param res table
 function HandleExecServerScoped(data, res)
@@ -555,7 +555,7 @@ function HandleExecServerScoped(data, res)
     end)
 end
 
---- POST /exec/client/scoped — execute Lua inside another resource's client VM
+--- POST /exec/client/scoped, execute Lua inside another resource's client VM
 ---@param data table { code: string, resource: string, playerId?: integer }
 ---@param res table
 function HandleExecClientScoped(data, res)
@@ -581,7 +581,7 @@ function HandleExecClientScoped(data, res)
     end)
 end
 
---- POST /nui/state — get NUI state from a player's client
+--- POST /nui/state, get NUI state from a player's client
 ---@param data table { playerId?: integer }
 ---@param res table
 function HandleNuiState(data, res)
@@ -604,7 +604,7 @@ function HandleNuiState(data, res)
     end)
 end
 
---- POST /screenshot — take a screenshot of a player's screen
+--- POST /screenshot, take a screenshot of a player's screen
 ---@param data table { playerId?: integer }
 ---@param res table
 function HandleScreenshot(data, res)
@@ -616,7 +616,7 @@ function HandleScreenshot(data, res)
     end, { encoding = data.encoding, quality = data.quality })
 end
 
---- POST /resource/file/read — read a file from any resource
+--- POST /resource/file/read, read a file from any resource
 ---@param data table { resource: string, path: string }
 ---@param res table
 function HandleReadResourceFile(data, res)
@@ -642,7 +642,7 @@ function HandleReadResourceFile(data, res)
     SendJson(res, 200, { success = true, resource = data.resource, path = data.path, size = #content, content = content })
 end
 
---- POST /resource/file/write — write a file to a resource
+--- POST /resource/file/write, write a file to a resource
 ---@param data table { resource: string, path: string, content: string }
 ---@param res table
 function HandleWriteResourceFile(data, res)
@@ -671,7 +671,7 @@ function HandleWriteResourceFile(data, res)
     end
 end
 
---- POST /resource/files — list files in a resource using manifest metadata
+--- POST /resource/files, list files in a resource using manifest metadata
 ---@param data table { resource: string }
 ---@param res table
 function HandleListResourceFiles(data, res)
@@ -712,7 +712,7 @@ function HandleListResourceFiles(data, res)
     })
 end
 
---- GET /commands — list all registered commands
+--- GET /commands, list all registered commands
 ---@param _params table
 ---@param res table
 function HandleGetCommands(_params, res)
