@@ -352,6 +352,12 @@ is in an access log. If your server is new enough, set
 `FIVEM_BRIDGE_TRANSPORT=post` and real POST bodies come back. Nothing on the Lua
 side has to change.
 
+If you test a route by hand, encode spaces as `%20` and not as `+`. The bridge
+decodes percent escapes only, because `encodeURIComponent` turns a literal `+`
+into `%2B`, and treating `+` as a space would corrupt any Lua containing one.
+`curl -G --data-urlencode` sends `+` and will hand your snippet to Lua with the
+spaces still in it.
+
 Two more limits shape this. A held open response is cut after a few seconds, so
 calls run as jobs: the request returns a job id at once and the result is
 collected from `/job?id=...` afterwards. And a URL has a length limit, so a
