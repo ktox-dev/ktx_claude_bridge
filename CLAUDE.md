@@ -1,278 +1,86 @@
 # CLAUDE.md
 
-## Project Overview
+Notes for working on this repo, and notes worth copying into the CLAUDE.md of
+any project you point the bridge at. Setup, configuration and the tool list live
+in the README.
 
-ktx_claude_bridge is a FiveM development tool that lets Claude Code interact with a running FiveM server in real-time. Three parts:
+## Parts
 
-1. **`ktx_claude_bridge/`** — FiveM Lua resource exposing HTTP endpoints via `SetHttpHandler` on `http://localhost:30120/ktx_claude_bridge/`
-2. **`ktx_claude_bridge/mcp/`** — Node.js MCP server (stdio transport) that wraps those endpoints + CDP connection as tools
-3. **`ktx_bridge_helper/`** — Sibling resource for persistent console capture and safe self-restart
+1. `ktx_claude_bridge/` is a FiveM Lua resource. It hangs HTTP routes off
+   `SetHttpHandler` under `http://<server>:30120/ktx_claude_bridge/`.
+2. `ktx_claude_bridge/mcp/` is a Node MCP server over stdio. It wraps those
+   routes and a CDP WebSocket as tools.
+3. `ktx_bridge_helper/` is a second resource. It holds the console listener and
+   restarts the bridge from outside. It must never restart itself, because the
+   ring buffer lives in its Lua state and destroying the bridge's own VM from
+   inside that VM ends in a SIGSEGV.
 
-## Architecture
+Build the MCP server with `cd ktx_claude_bridge/mcp && pnpm install && pnpm run build`.
 
-```
-Claude Code ──stdio──> MCP Server (Node.js, mcp/)
-                           ├── HTTP fetch() ──> FiveM Server (port 30120)
-                           │                    └─ ktx_claude_bridge (Lua resource)
-                           │                        ├─ server/ — HTTP handler, routes, console, relay
-                           │                        └─ client/ — code exec relay, console capture
-                           │
-                           └── WebSocket ──> CEF DevTools Protocol (port 13172)
-                                             └─ CitizenFX root UI (nui://game/ui/root.html)
-                                                └─ iframes for each resource's NUI page
-```
+## Notes for agents using the bridge
 
-**Two communication channels:**
-- **HTTP → FiveM Lua** — for Lua execution, events, console, DB, resource management
-- **WebSocket → CEF CDP** — for NUI/JS execution, DOM inspection, NUI interaction across all resources
+These are the mistakes that cost the most time.
 
-**Client relay pattern:** HTTP → server stores callback by requestId → TriggerClientEvent → client executes → TriggerServerEvent → server resolves HTTP response.
+- **Exports take a colon.** `exports.qbx_core:GetPlayer(1)`, never a dot. With a
+  dot, FiveM passes a hidden first argument and the call misbehaves quietly.
+- **`lib` does not exist in the bridge's VM.** ox_lib only defines it inside
+  resources that depend on it. Use a scoped exec or call the export.
+- **Qbox has `GetPlayer`, not `GetPlayerData`.**
+- **Refresh before restart.** After editing an fxmanifest, run
+  `run_command({command: "refresh"})` before `restart_resource`. FiveM caches
+  manifests.
+- **Statebag keys are not enumerable.** Read them by name with
+  `Player(id).state.key` or `GetStateBagValue("player:"..id, "key")`.
+- **`get_server_console` is noisy.** Hitch warnings and server list errors come
+  from `citizen-server-impl`. Filter on the `resource` field.
+- **A client side failure leaves nothing in `get_client_console`.** That buffer
+  only holds what code run through `exec_client_lua` printed. Reach for
+  `read_client_log` whenever a client symptom has no server side trace.
+- **Two screenshots, two meanings.** `take_screenshot` is the game plus the UI.
+  `nui_screenshot` is the UI alone on a transparent background.
+- **NUI frames** carry URLs of the form `nui://<resource>/` or
+  `https://cfx-nui-<resource>/`. `nui_list_frames` resolves the names.
 
-**Scoped exec pattern:** HTTP → server TriggerEvent (local) → exec_bridge.lua (in target resource's VM) → executes code with full globals access → TriggerEvent result back → HTTP response.
+## Routes
 
-## Dependencies
+Two of the GET routes are plumbing rather than API. `/chunk` takes one piece of
+a long payload, `/job` collects the result of an asynchronous call. See
+Transport in the README for why both exist.
 
-- **FiveM resource:** `ktx_bridge_helper` (sibling resource for safe self-restart)
-- **MCP server:** `@modelcontextprotocol/sdk`, `zod`, `ws`
-- **Optional:** `screencapture` resource for game screenshots (github.com/itschip/screencapture)
+| Method | Path |
+|---|---|
+| GET | `/status`, `/server/info`, `/players`, `/player/data`, `/resources`, `/resource/info`, `/entities`, `/commands`, `/console/server`, `/console/client` |
+| GET | `/chunk`, `/job` |
+| POST | `/exec/server`, `/exec/client`, `/exec/server/scoped`, `/exec/client/scoped` |
+| POST | `/event/server`, `/event/client`, `/command`, `/command/client` |
+| POST | `/db/query`, `/nui/state`, `/screenshot` |
+| POST | `/resource/restart`, `/resource/file/read`, `/resource/file/write`, `/resource/files` |
 
-## Build
+Every POST route also answers a GET carrying `?body=<url encoded json>`, which
+is what the MCP client uses by default.
 
-```bash
-cd ktx_claude_bridge/mcp && pnpm install && pnpm run build
-```
+## Patterns
 
-## Configuration
+**Client relay.** HTTP arrives, the server stores a callback under a request id,
+`TriggerClientEvent` goes out, the client runs the code, `TriggerServerEvent`
+comes back, the HTTP response resolves. The result handler checks that the
+answer came from the player the request went to.
 
-Convars (set in server.cfg):
-- `set ktx_bridge_enabled true` — enable/disable the bridge
-- `set ktx_bridge_token ""` — optional auth token (empty = no auth)
-- `set ktx_bridge_client_timeout 300000` — client exec timeout in ms (generous: work runs as a job, so it no longer holds an HTTP response open)
-- `set ktx_bridge_max_console 500` — max console ring buffer lines
+**Scoped exec.** HTTP arrives, the server fires a local `TriggerEvent`,
+`exec_bridge.lua` inside the target resource's VM runs the code with full access
+to that resource's globals, and the result comes back the same way. Server side
+this is a local event and never a `RegisterNetEvent`, so a client cannot reach
+it.
 
-Environment variables for MCP server:
-- `FIVEM_BRIDGE_URL` — FiveM bridge URL (default: `http://localhost:30120/ktx_claude_bridge`)
-- `FIVEM_BRIDGE_TOKEN` — Optional auth token
-- `FIVEM_BRIDGE_TIMEOUT` — timeout for a single HTTP round-trip in ms (default: `15000`)
-- `FIVEM_BRIDGE_JOB_TIMEOUT` — how long to keep polling a job before giving up (default: `300000`)
-- `FIVEM_BRIDGE_CHUNK_THRESHOLD` — payloads longer than this are uploaded to `/chunk` first (default: `1200`)
-- `FIVEM_BRIDGE_TRANSPORT` — `get` (default) or `post`. See "Transport on Enhanced" below.
-- `FIVEM_LOG_PATH` — Path to fxserver.log (auto-detected if empty)
-- `FIVEM_CLIENT_LOG_PATH` — Path to the client's CitizenFX log, file or folder (auto-detected if empty)
-- `FIVEM_CDP_PORT` — CEF DevTools Protocol port (default: `13172`)
-- `FIVEM_SERVERS` — several servers as JSON, `{"name": {"url": ..., "transport": ..., "logPath": ...}}`. Replaces the per-server variables above
-- `FIVEM_SERVER_DEFAULT` — which of them is active at startup (default: the first)
-
-MCP config for Claude Code settings:
-```json
-{
-  "mcpServers": {
-    "fivem": {
-      "command": "node",
-      "args": ["<path>/ktx_claude_bridge/ktx_claude_bridge/mcp/dist/index.js"],
-      "env": { "FIVEM_BRIDGE_URL": "http://localhost:30120/ktx_claude_bridge" }
-    }
-  }
-}
-```
-
-**One entry, several servers.** Use `FIVEM_SERVERS` instead of
-`FIVEM_BRIDGE_URL` and switch with `use_server`. One entry per server also
-works, but then nothing stops two of them naming the same URL, and their names
-stop meaning anything. `list_servers` warns when that happens.
-
-## Endpoints
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | /status | Server health check |
-| GET | /server/info | Extended server info (convars, frameworks, OneSync) |
-| GET | /players | Detailed player list |
-| GET | /player/data | Qbox player data (job, gang, money, charinfo) |
-| GET | /resources | All resources with states |
-| GET | /resource/info | Resource metadata (version, author, scripts, exports, deps) |
-| GET | /entities | All entities (vehicles, peds, objects) — requires OneSync |
-| GET | /console/server | Server console (all resources via RegisterConsoleListener) |
-| GET | /console/client | Client console output |
-| GET | /chunk | Upload one piece of a long payload (`id`, `i`, `n`, `d`) |
-| GET | /job | Fetch the result of an async call (`id`) |
-| POST | /exec/server | Execute Lua server-side (bridge's VM) |
-| POST | /exec/client | Execute Lua client-side (bridge's VM) |
-| POST | /exec/server/scoped | Execute Lua in another resource's server VM |
-| POST | /exec/client/scoped | Execute Lua in another resource's client VM |
-| POST | /event/server | Trigger server event |
-| POST | /event/client | Trigger client event |
-| POST | /command | Server console command |
-| POST | /command/client | Client-side command |
-| POST | /db/query | Read-only SQL query (SELECT/SHOW/DESCRIBE/EXPLAIN) |
-| POST | /nui/state | Get NUI focus/cursor state from player's client |
-| POST | /resource/restart | Restart resource (cannot self-restart) |
-| POST | /screenshot | Take screenshot |
-
-## MCP Tools (40 total)
-
-### Servers
-| Tool | Description |
-|------|-------------|
-| `list_servers` | Configured servers and which one is active. Warns when two share a URL |
-| `use_server` | Point every following call at another server |
-
-### Lua Execution
-| Tool | Description |
-|------|-------------|
-| `exec_server_lua` | Execute Lua in bridge's server VM. Call exports via COLON syntax: `exports.resource:export(args)` |
-| `exec_client_lua` | Execute Lua in bridge's client VM on a player |
-| `exec_server_lua_scoped` | Execute Lua inside another resource's server VM (requires exec_bridge.lua) |
-| `exec_client_lua_scoped` | Execute Lua inside another resource's client VM (requires exec_bridge.lua) |
-
-### NUI/CEF Tools (via Chrome DevTools Protocol, port 13172)
-| Tool | Description |
-|------|-------------|
-| `nui_list_frames` | List all loaded NUI resource frames (28+ typically) |
-| `nui_exec_js` | Execute JS in any resource's NUI frame by name |
-| `nui_query_dom` | Query DOM elements by CSS selector in any resource's NUI |
-| `nui_get_dom_tree` | Get serialized DOM tree of any resource's NUI page |
-| `nui_click_element` | Click a DOM element by selector (synthetic or CDP mouse) |
-| `nui_fill_input` | Fill input elements (React-compatible native setter) |
-| `nui_screenshot` | CDP screenshot of NUI layer only (no game world) |
-| `nui_simulate_click` | Click at pixel coordinates in NUI layer |
-
-### Server & Player Info
-| Tool | Description |
-|------|-------------|
-| `get_server_status` | Server health check (players, resources, uptime) |
-| `get_server_info` | Extended info (hostname, OneSync, frameworks, resource counts) |
-| `get_players` | All connected players with positions and identifiers |
-| `get_player_data` | Qbox player data. Export is `GetPlayer`, NOT `GetPlayerData` |
-| `get_resources` | All resources with states |
-| `get_resource_info` | Resource metadata (version, author, scripts, exports, deps) |
-| `get_entities` | All server entities (requires OneSync) |
-
-### Console & Logs
-
-Four sources, two axes. Pick by side and by completeness:
-
-|  | Server | Client |
-|---|---|---|
-| Complete, from disk | `read_server_log` | `read_client_log` |
-| Recent, from memory | `get_server_console` | `get_client_console` |
-
-**The client pair is not the mirror of the server pair.** `get_server_console`
-uses `RegisterConsoleListener` and therefore holds everything, errors included.
-`get_client_console` overrides `print` in the bridge's own Lua state, and every
-resource in FiveM has its own state — so it holds only the output of code run
-through `exec_client_lua`. No other resource's prints, no SCRIPT ERRORs, no
-resource load or mount lines, no NUI/CEF errors.
-
-A resource that fails on the client leaves **nothing** in `get_client_console`
-and nothing in any server-side source. A config value that reaches the server
-but not the client is the clearest case: the server behaves, the client throws
-on every mount, and both consoles stay clean. Reach for `read_client_log`
-whenever a client-side symptom has no server-side trace.
-
-| Tool | Description |
-|------|-------------|
-| `get_server_console` | Live console output, all resources. `resource` field for filtering. Noisy with hitch warnings. 1000-line ring, starts with the helper |
-| `get_client_console` | Only what `exec_client_lua` printed. See above |
-| `read_server_log` | Full txAdmin fxserver.log, from boot (search/tail) |
-| `read_client_log` | The client's own CitizenFX log: SCRIPT ERRORs, downloads, mounts, CEF |
-| `watch_console` | Poll console for new output over a duration |
-
-### Events, Commands & Resources
-| Tool | Description |
-|------|-------------|
-| `trigger_server_event` | Trigger server event with arguments |
-| `trigger_client_event` | Trigger client event on a specific player |
-| `run_command` | Server console command |
-| `run_client_command` | Client-side command |
-| `restart_resource` | Restart resource. Run `refresh` first if fxmanifest was modified |
-| `db_query` | Read-only SQL via oxmysql |
-| `send_nui_message` | Send JSON to a resource's NUI JS frame (NOT Lua callbacks) |
-| `get_nui_state` | Get NUI focus/cursor state |
-| `take_screenshot` | Game screenshot via screencapture resource (returns MCP image) |
-
-## Transport on FiveM for GTAV Enhanced
-
-Two platform limits shape how the MCP client talks to the Lua side on b96.
-Both are worked around transparently — callers see a normal request/response.
-
-**1. POST bodies never arrive.** The callback given to `req.setDataHandler`
-does not fire, so the handler never answers and the server drops the
-connection after ~5s (reported upstream as
-[citizenfx/rfc#279](https://github.com/citizenfx/rfc/discussions/279)).
-The payload therefore travels as `?body=<url-encoded json>` on a GET, and the
-Lua side accepts either form.
-
-**2. Held-open responses are cut after a few seconds.** Anything slower than
-that used to fail even though the Lua ran to completion — only the answer was
-lost. Calls now run as jobs:
-
-```
-GET /exec/client?async=1&body=…   ->  202 {"job":"job_…"}
-GET /job?id=job_…                 ->  {"done":false}  … then the real result
-```
-
-The handler runs in its own thread, so the job id goes out immediately even
-when the handler blocks. Verified with a 20-second execution.
-
-**Long payloads** exceed URL length limits, so anything over
-`FIVEM_BRIDGE_CHUNK_THRESHOLD` is uploaded in pieces to `/chunk` and the call
-references it with `?chunked=<id>`. Verified with a 4.2 KB snippet in 4 pieces.
-
-When the upstream bug is fixed, set `FIVEM_BRIDGE_TRANSPORT=post` and the
-client goes back to real POSTs. Nothing on the Lua side needs to change.
-
-**Fixed as of the August 11 patch (server b118).** Measured on 2026-08-13: a
-`POST` with body `hallo=welt&zahl=42` reached `req.setDataHandler` and the
-handler answered normally. The `project_rp` MCP entry now sets
-`FIVEM_BRIDGE_TRANSPORT=post`. The GET path, `/chunk` and `?chunked=` stay in
-place for servers still on an older build.
-
-## Scoped Execution
-
-`exec_server_lua` / `exec_client_lua` run in the bridge's own Lua VM. You can call exports but CANNOT access other resources' globals/locals.
-
-For full access to a resource's internals (globals, `lib`, state), use scoped tools:
-
-1. Add to the target resource's `fxmanifest.lua`:
-   ```lua
-   shared_script '@ktx_claude_bridge/exec_bridge.lua'
-   ```
-2. Run `refresh` then `ensure <resource>` to reload
-3. Use `exec_server_lua_scoped` / `exec_client_lua_scoped` with the resource name
-
-This injects a tiny event handler into the target's VM that can execute arbitrary code with full access to that resource's globals, `lib`, etc. Server-side uses local events only (NOT RegisterNetEvent) to prevent client spoofing.
-
-## Important Notes for AI Agents
-
-- **Export syntax:** Always use COLON syntax: `exports.qbx_core:GetPlayer(1)`, NOT dot syntax
-- **ox_lib's `lib` global** is NOT available in the bridge's VM — use scoped exec or call exports directly
-- **Console noise:** `get_server_console` output contains hitch warnings from `citizen-server-impl` — filter by `resource` field
-- **Qbox exports:** The correct export is `exports.qbx_core:GetPlayer(src)`, NOT `GetPlayerData`
-- **fxmanifest changes:** Run `run_command({command: "refresh"})` BEFORE `restart_resource`
-- **Statebags:** Use `Player(id).state.key` or `GetStateBagValue("player:"..id, "key")` — keys are NOT enumerable
-- **Screenshots:** `take_screenshot` = game + NUI (MCP image). `nui_screenshot` = NUI layer only via CDP
-- **NUI frames:** FiveM uses `nui://` and `https://cfx-nui-resourceName/` URL patterns for NUI iframes
+**Jobs.** FiveM cuts a held open HTTP response after a few seconds. Long calls
+therefore answer with a job id at once and the real result is polled from
+`/job`. The handler runs in its own thread, so a blocking handler does not delay
+the response that carries the id.
 
 ## Conventions
 
-- Lua 5.4, `<const>` qualifier where appropriate
-- Standalone — no ox_lib dependency in the bridge itself
-- Server console uses `RegisterConsoleListener` — captures ALL output from every resource and engine
-- Console persists in `ktx_bridge_helper` (1000 line ring buffer, survives bridge restarts)
-- Self-restart delegated to `ktx_bridge_helper` (avoids SIGSEGV from destroying own Lua VM)
-- Client console wraps `print` — captures client-side output in ring buffer
-- FiveM exports pass hidden first arg with dot syntax — always use colon syntax or wrap in closure
-- Dev-only tool — prints warning on startup
-
-## Setup (server.cfg)
-
-```cfg
-# Required for command execution (ensure/stop/start/restart/refresh)
-add_ace resource.ktx_claude_bridge command allow
-add_ace resource.ktx_bridge_helper command allow
-
-# Start the helper before the bridge
-ensure ktx_bridge_helper
-ensure ktx_claude_bridge
-```
+- Lua 5.4, `<const>` where it applies.
+- The bridge itself is standalone. No ox_lib, no framework.
+- Everything outside a language file is English.
+- Comments say why, not what.
+- The startup print says DEV ONLY, and it means it.
