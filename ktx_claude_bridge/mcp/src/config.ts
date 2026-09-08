@@ -28,8 +28,14 @@ export const config = {
   /** Timeout for a single HTTP round-trip. These are short: long work runs as
    *  a job and is polled, so no request stays open. */
   timeout: parseInt(process.env.FIVEM_BRIDGE_TIMEOUT || '15000', 10),
-  /** How long we keep polling a job before giving up. */
-  jobTimeout: parseInt(process.env.FIVEM_BRIDGE_JOB_TIMEOUT || '300000', 10),
+  /** How long we keep polling a job before giving up.
+   *
+   *  Deliberately longer than the Lua side's ktx_bridge_client_timeout
+   *  (300000). Whichever side gives up first writes the error the caller
+   *  reads, and the Lua one knows things we do not: whether the player is
+   *  still connected, whether the target resource carries exec_bridge.lua.
+   *  Set them equal and the caller gets our guess instead of its answer. */
+  jobTimeout: parseInt(process.env.FIVEM_BRIDGE_JOB_TIMEOUT || '330000', 10),
   /** Payloads longer than this are uploaded in pieces to /chunk first.
    *  The payload travels in the URL (POST bodies do not arrive on b96),
    *  so it has to stay well below any URL length limit. */

@@ -6,6 +6,9 @@ Config.authToken = GetConvar('ktx_bridge_token', '')
 -- open. The only purpose left for this value is to give up on a client that
 -- hangs.
 Config.clientExecTimeout = tonumber(GetConvar('ktx_bridge_client_timeout', '300000'))
+-- A screenshot either comes back within seconds or it is not coming. It
+-- gets its own budget, because twice the client timeout meant ten minutes.
+Config.screenshotTimeout = tonumber(GetConvar('ktx_bridge_screenshot_timeout', '60000'))
 Config.maxConsoleLines = tonumber(GetConvar('ktx_bridge_max_console', '500'))
 
 CreateThread(function()

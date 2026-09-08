@@ -120,14 +120,37 @@ function describe(err: unknown, method: string, path: string): Error {
  * limits. We cut it into pieces, push them to /chunk, and let the real call
  * reference the upload by id.
  */
+function splitForUrl(payload: string, budget: number): string[] {
+  const pieces: string[] = [];
+  let piece = '';
+  let used = 0;
+
+  // Walking code points, not UTF-16 units: slicing in the middle of a
+  // surrogate pair leaves a lone half, and encodeURIComponent throws on it.
+  for (const ch of payload) {
+    const cost = encodeURIComponent(ch).length;
+    if (used + cost > budget && piece !== '') {
+      pieces.push(piece);
+      piece = '';
+      used = 0;
+    }
+    piece += ch;
+    used += cost;
+  }
+
+  if (piece !== '') pieces.push(piece);
+  return pieces;
+}
+
 async function uploadChunks(payload: string): Promise<string> {
   const id = `up_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-  const size = config.chunkThreshold;
-  const pieces: string[] = [];
 
-  for (let i = 0; i < payload.length; i += size) {
-    pieces.push(payload.slice(i, i + size));
-  }
+  // The threshold is measured on the encoded payload, so the pieces have to
+  // be measured the same way. Cutting raw characters looks equivalent and is
+  // not: a quote or a newline costs three characters in a URL, so a piece of
+  // 1200 characters could arrive as 3600 and blow the very limit the
+  // threshold exists to respect.
+  const pieces = splitForUrl(payload, config.chunkThreshold);
 
   for (let i = 0; i < pieces.length; i++) {
     const url =

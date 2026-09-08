@@ -1,4 +1,5 @@
 local TIMEOUT <const> = Config.clientExecTimeout
+local SHOT_TIMEOUT <const> = Config.screenshotTimeout
 local nextId = 0
 
 ---@class PendingCallback
@@ -78,7 +79,7 @@ function TakeScreenshot(playerId, resolve, options)
     end, 'base64')
 
     -- Timeout
-    SetTimeout(TIMEOUT * 2, function()
+    SetTimeout(SHOT_TIMEOUT, function()
         local pending = PendingCallbacks[id]
         if pending then
             PendingCallbacks[id] = nil

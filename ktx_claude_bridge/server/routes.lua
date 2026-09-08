@@ -269,7 +269,7 @@ function HandleResourceInfo(params, res)
         resource = {
             name = name,
             state = state,
-            version = getMeta('resource_version'),
+            version = getMeta('version'),
             author = getMeta('author'),
             description = getMeta('description'),
             fx_version = getMeta('fx_version'),

@@ -34,19 +34,35 @@ export class CDPClient {
   private pending = new Map<number, PendingRequest>();
   private contexts = new Map<number, ExecutionContext>();
   private connectPromise: Promise<void> | null = null;
-  private port: number;
+  private fixedPort?: number;
+  private connectedPort?: number;
   private timeout: number;
 
   constructor(port?: number, timeout?: number) {
-    this.port = port ?? activeServer().cdpPort;
+    this.fixedPort = port;
     this.timeout = timeout ?? config.timeout;
   }
 
+  /**
+   * The port of the server that is active NOW, not the one that was active
+   * when this object was made.
+   *
+   * Every NUI tool shares one client, and that client used to read the port
+   * once at import time. `use_server` then moved the HTTP side to another
+   * server while the debugger stayed pointed at the first one, silently: the
+   * tools kept answering, just about the wrong game client.
+   */
+  private get port(): number {
+    return this.fixedPort ?? activeServer().cdpPort;
+  }
+
   async connect(): Promise<void> {
-    if (this.ws?.readyState === WebSocket.OPEN) return;
+    const port = this.port;
+    if (this.ws?.readyState === WebSocket.OPEN && this.connectedPort === port) return;
+    if (this.ws) this.disconnect();
 
     // Discover target
-    const res = await fetch(`http://127.0.0.1:${this.port}/json`);
+    const res = await fetch(`http://127.0.0.1:${port}/json`);
     const targets = (await res.json()) as Array<{
       id: string;
       type: string;
@@ -82,6 +98,7 @@ export class CDPClient {
       ws.on('open', () => {
         clearTimeout(timeout);
         this.ws = ws;
+        this.connectedPort = port;
         this.setupHandlers();
         resolve();
       });
@@ -142,6 +159,7 @@ export class CDPClient {
 
     this.ws.on('close', () => {
       this.ws = null;
+      this.connectedPort = undefined;
       this.connectPromise = null;
       // Reject all pending requests
       for (const [id, req] of this.pending) {
@@ -158,11 +176,12 @@ export class CDPClient {
       this.ws.close();
       this.ws = null;
     }
+    this.connectedPort = undefined;
     this.connectPromise = null;
   }
 
   async ensureConnected(): Promise<void> {
-    if (this.ws?.readyState === WebSocket.OPEN) return;
+    if (this.ws?.readyState === WebSocket.OPEN && this.connectedPort === this.port) return;
     if (!this.connectPromise) {
       this.connectPromise = this.connect().finally(() => {
         this.connectPromise = null;
